@@ -10,10 +10,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { createClient } from "@/lib/supabase/client";
 
+import type { User as SupabaseUser } from "@supabase/supabase-js";
+
 export interface AccountSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  user: any;
+  user: SupabaseUser | null;
   onProfileUpdated?: (updatedProfile: { display_name: string; avatar_url: string; username: string }) => void;
 }
 
@@ -70,7 +72,7 @@ export function AccountSettingsModal({
 
       fetchUserProfile();
     }
-  }, [isOpen, user]);
+  }, [isOpen, user, supabase]);
 
   if (!isOpen) return null;
 
@@ -91,7 +93,7 @@ export function AccountSettingsModal({
       const finalAvatar = avatarUrl.trim() || `https://avatar.vercel.sh/${username || user.id}`;
 
       // 1. Update Auth Metadata first
-      const { data: authData, error: authError } = await supabase.auth.updateUser({
+      const { error: authError } = await supabase.auth.updateUser({
         data: {
           display_name: cleanDisplayName,
           avatar_url: finalAvatar,
@@ -142,9 +144,10 @@ export function AccountSettingsModal({
       setTimeout(() => {
         onClose();
       }, 1000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to save profile:", err);
-      setFeedback({ type: "error", text: `${err.message || "Error"}` });
+      const errorMsg = err instanceof Error ? err.message : "Error";
+      setFeedback({ type: "error", text: `${errorMsg}` });
     } finally {
       setIsLoading(false);
     }

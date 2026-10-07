@@ -2,23 +2,26 @@
 
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
-import { Download, Monitor, CheckCircle, X, ExternalLink } from "lucide-react";
+import { Download, Monitor, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { ToastNotification } from "./ui/toast-notification";
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
 export function PwaInstaller() {
   const t = useTranslations("Pwa");
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isInstalled, setIsInstalled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(display-mode: standalone)").matches || (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
   useEffect(() => {
-    // Check if running as standalone PWA
-    if (window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone === true) {
-      setIsInstalled(true);
-    }
-
     // Register Service Worker
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
@@ -30,7 +33,7 @@ export function PwaInstaller() {
     // Listen for beforeinstallprompt
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
 
     const handleAppInstalled = () => {
@@ -46,7 +49,7 @@ export function PwaInstaller() {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
     };
-  }, []);
+  }, [t]);
 
   const handleInstallClick = async () => {
     if (deferredPrompt) {

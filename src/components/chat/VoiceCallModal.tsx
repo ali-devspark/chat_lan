@@ -3,8 +3,7 @@
 import { useTranslations } from "next-intl";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Phone, PhoneOff, Mic, MicOff, Volume2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Phone, PhoneOff, Mic, MicOff } from "lucide-react";
 
 export type CallState = "idle" | "incoming" | "outgoing" | "connected" | "ended" | "rejected" | "busy";
 

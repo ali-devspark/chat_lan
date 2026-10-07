@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ringtoneManager } from "@/lib/webrtc/ringtone";
 import { CallState } from "@/components/chat/VoiceCallModal";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 export interface CallUser {
   id: string;
@@ -22,7 +23,7 @@ const ICE_SERVERS: RTCConfiguration = {
   ],
 };
 
-export function useAudioCall(currentUser: any, showToast?: (msg: string, type?: "success" | "error" | "info") => void) {
+export function useAudioCall(currentUser: SupabaseUser | null, showToast?: (msg: string, type?: "success" | "error" | "info") => void) {
   const supabase = createClient();
   const [callState, setCallState] = useState<CallState>("idle");
   const [otherUser, setOtherUser] = useState<CallUser | null>(null);
@@ -34,7 +35,7 @@ export function useAudioCall(currentUser: any, showToast?: (msg: string, type?: 
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const pendingIceCandidates = useRef<RTCIceCandidateInit[]>([]);
-  const timerIntervalRef = useRef<any>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const callStateRef = useRef<CallState>("idle");
   const otherUserRef = useRef<CallUser | null>(null);
@@ -84,12 +85,12 @@ export function useAudioCall(currentUser: any, showToast?: (msg: string, type?: 
         console.error("Failed to insert call log message:", err);
       }
     },
-    [currentUser?.id, supabase]
+    [currentUser, supabase]
   );
 
   // Helper to send WebRTC signaling broadcast to a target user
   const sendSignal = useCallback(
-    async (targetUserId: string, event: string, payload: any = {}) => {
+    async (targetUserId: string, event: string, payload: Record<string, unknown> = {}) => {
       if (!currentUser?.id) return;
       const targetChannel = supabase.channel(`call-signal:${targetUserId}`, {
         config: { broadcast: { self: false } },
@@ -111,7 +112,7 @@ export function useAudioCall(currentUser: any, showToast?: (msg: string, type?: 
         }
       });
     },
-    [currentUser?.id, supabase]
+    [currentUser, supabase]
   );
 
   // Clean up WebRTC peer connection, local streams, timers & ringtones
@@ -209,7 +210,7 @@ export function useAudioCall(currentUser: any, showToast?: (msg: string, type?: 
   );
 
   // Start User Media (Microphone)
-  const getMicrophoneStream = async (): Promise<MediaStream | null> => {
+  const getMicrophoneStream = useCallback(async (): Promise<MediaStream | null> => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
@@ -221,7 +222,7 @@ export function useAudioCall(currentUser: any, showToast?: (msg: string, type?: 
       }
       return null;
     }
-  };
+  }, [showToast]);
 
   // Initiate an Outgoing Voice Call
   const startCall = useCallback(
@@ -268,7 +269,7 @@ export function useAudioCall(currentUser: any, showToast?: (msg: string, type?: 
     startTimer();
 
     await sendSignal(caller.id, "call-accept");
-  }, [currentUser, sendSignal, resetToIdle, startTimer]);
+  }, [currentUser, sendSignal, resetToIdle, startTimer, getMicrophoneStream]);
 
   // Reject an Incoming Voice Call
   const rejectCall = useCallback(async () => {
@@ -444,7 +445,7 @@ export function useAudioCall(currentUser: any, showToast?: (msg: string, type?: 
     return () => {
       supabase.removeChannel(mySignalChannel);
     };
-  }, [currentUser?.id, sendSignal, createPeerConnection, resetToIdle, startTimer, endCall, showToast, logCallMessage]);
+  }, [currentUser?.id, sendSignal, createPeerConnection, resetToIdle, startTimer, endCall, showToast, logCallMessage, getMicrophoneStream, supabase]);
 
   useEffect(() => {
     return () => {

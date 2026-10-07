@@ -1,9 +1,10 @@
+import { NextRequest } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import {routing} from './i18n/routing';
 
 const handleLocale = createMiddleware(routing);
 
-export function proxy(request: any) {
+export function proxy(request: NextRequest) {
   return handleLocale(request);
 }
 

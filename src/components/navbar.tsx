@@ -9,8 +9,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "./ui/dropdown-menu";
-import { Button, buttonVariants } from "./ui/button";
-import { Moon, Sun, Globe, LogOut, User, ChevronDown } from "lucide-react";
+import { buttonVariants } from "./ui/button";
+import { Moon, Sun, Globe, LogOut, User as UserIcon, ChevronDown } from "lucide-react";
 import { usePathname, useRouter, Link } from "@/i18n/routing";
 import { createClient } from "@/lib/supabase/client";
 import { useEffect, useState } from "react";
@@ -18,6 +18,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { useParams } from "next/navigation";
 import { AccountSettingsModal } from "./account-settings-modal";
 import { PwaInstaller } from "./pwa-installer";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 export function Navbar() {
   const t = useTranslations("Navbar");
@@ -28,7 +29,7 @@ export function Navbar() {
   const locale = (params?.locale as string) || "ar";
   const supabase = createClient();
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<{
     display_name: string;
     avatar_url: string;
@@ -50,7 +51,7 @@ export function Navbar() {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [supabase]);
 
   // Fetch detailed profile when user is available
   useEffect(() => {
@@ -76,7 +77,7 @@ export function Navbar() {
     } else {
       setUserProfile(null);
     }
-  }, [user?.id]);
+  }, [user?.id, user?.user_metadata?.username, user?.user_metadata?.display_name, user?.user_metadata?.avatar_url, user?.email, supabase]);
 
   const switchLanguage = (newLocale: "ar" | "en") => {
     router.replace(pathname, { locale: newLocale });
@@ -176,7 +177,7 @@ export function Navbar() {
                       onClick={() => setIsSettingsModalOpen(true)}
                       className="cursor-pointer gap-2 py-2"
                     >
-                      <User className="h-4 w-4 text-primary" />
+                      <UserIcon className="h-4 w-4 text-primary" />
                       <span className="font-medium text-xs">{t("accountSettings")}</span>
                     </DropdownMenuItem>
 

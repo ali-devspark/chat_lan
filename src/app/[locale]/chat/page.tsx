@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Send,
-  Menu,
   Phone,
   PhoneIncoming,
   PhoneOutgoing,
@@ -27,14 +26,14 @@ import {
   PanelLeftOpen,
   ChevronRight,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { ActionConfirmModal } from "@/components/ui/action-confirm-modal";
 import { ToastNotification } from "@/components/ui/toast-notification";
 import { VoiceCallModal } from "@/components/chat/VoiceCallModal";
 import { useAudioCall } from "@/hooks/useAudioCall";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface Profile {
   id: string;
@@ -65,7 +64,7 @@ interface MessageItem {
 interface ModalState {
   isOpen: boolean;
   type: "delete_conv" | "delete_msg" | "edit_msg" | "add_chat" | null;
-  targetData?: any;
+  targetData?: unknown;
   title: string;
   description: string;
   actionType: "delete" | "add" | "edit" | "warning";
@@ -77,10 +76,9 @@ export default function ChatPage() {
   const tCall = useTranslations("Call");
   const supabase = createClient();
   const params = useParams();
-  const router = useRouter();
   const locale = (params?.locale as string) || "ar";
 
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [message, setMessage] = useState("");
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
@@ -179,7 +177,7 @@ export default function ChatPage() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [locale]);
+  }, [locale, supabase]);
 
   // Track Online Presence using Supabase Realtime Presence
   useEffect(() => {
@@ -225,10 +223,10 @@ export default function ChatPage() {
     return () => {
       supabase.removeChannel(presenceChannel);
     };
-  }, [currentUser?.id]);
+  }, [currentUser?.id, supabase]);
 
   // Mark conversation as read in state & database
-  const markConversationAsRead = async (convId: string) => {
+  const markConversationAsRead = useCallback(async (convId: string) => {
     if (!currentUser) return;
 
     // Update local state immediately
@@ -247,10 +245,10 @@ export default function ChatPage() {
     } catch (err) {
       console.error("Error marking messages as read:", err);
     }
-  };
+  }, [currentUser, supabase]);
 
   // Fetch user's saved conversations
-  const fetchConversations = async (userId: string) => {
+  const fetchConversations = useCallback(async (userId: string) => {
     try {
       const { data: memberData, error: memberError } = await supabase
         .from("conversation_members")
@@ -278,7 +276,7 @@ export default function ChatPage() {
           (m) => m.conversation_id === convId && m.user_id !== userId
         );
 
-        const otherProfile = (otherMemberObj?.profiles as any) || {
+        const otherProfile = (otherMemberObj?.profiles as unknown as Profile) || {
           id: "unknown",
           username: "user",
           display_name: "User",
@@ -321,13 +319,13 @@ export default function ChatPage() {
     } catch (err) {
       console.error("Error loading conversations:", err);
     }
-  };
+  }, [supabase]);
 
   useEffect(() => {
     if (currentUser?.id) {
       fetchConversations(currentUser.id);
     }
-  }, [currentUser]);
+  }, [currentUser?.id, fetchConversations]);
 
   // Handle system-wide username & display_name search
   useEffect(() => {
@@ -356,7 +354,7 @@ export default function ChatPage() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [systemSearchQuery, currentUser]);
+  }, [systemSearchQuery, currentUser, supabase]);
 
   // Direct start or switch to conversation
   const handleDirectStartChat = async (targetUser: Profile) => {
@@ -512,6 +510,7 @@ export default function ChatPage() {
 
   // Execute message edit (Sets is_edited: true)
   const executeEditMessage = async (target: { msg: MessageItem; newContent: string }) => {
+    if (!currentUser) return;
     setIsModalActionLoading(true);
     try {
       const { error } = await supabase
@@ -579,6 +578,7 @@ export default function ChatPage() {
 
   // Execute soft message deletion (Sets is_deleted: true column in DB)
   const executeDeleteMessage = async (msg: MessageItem) => {
+    if (!currentUser) return;
     if (!isMessageWithin15Mins(msg.created_at)) {
       showToast(t("deleteWindowExceeded"), "error");
       closeConfirmModal();
@@ -617,16 +617,16 @@ export default function ChatPage() {
 
     switch (confirmModal.type) {
       case "add_chat":
-        await handleDirectStartChat(confirmModal.targetData);
+        await handleDirectStartChat(confirmModal.targetData as Profile);
         break;
       case "delete_conv":
-        await executeDeleteConversation(confirmModal.targetData);
+        await executeDeleteConversation(confirmModal.targetData as ConversationItem);
         break;
       case "edit_msg":
-        await executeEditMessage(confirmModal.targetData);
+        await executeEditMessage(confirmModal.targetData as { msg: MessageItem; newContent: string });
         break;
       case "delete_msg":
-        await executeDeleteMessage(confirmModal.targetData);
+        await executeDeleteMessage(confirmModal.targetData as MessageItem);
         break;
     }
   };
@@ -656,7 +656,7 @@ export default function ChatPage() {
 
     fetchMessages();
     markConversationAsRead(selectedChat);
-  }, [selectedChat, currentUser?.id]);
+  }, [selectedChat, currentUser?.id, markConversationAsRead, supabase]);
 
   // Global Realtime Listener for messages across all user's conversations
   useEffect(() => {
@@ -733,7 +733,7 @@ export default function ChatPage() {
     return () => {
       supabase.removeChannel(globalChannel);
     };
-  }, [currentUser?.id, selectedChat]);
+  }, [currentUser?.id, selectedChat, fetchConversations, supabase]);
 
   // Send message
   const handleSendMessage = async () => {
@@ -1165,7 +1165,7 @@ export default function ChatPage() {
 
                             let IconComponent = PhoneOutgoing;
                             let title = tCall("callLogOutgoing");
-                            let subtext = durationSec > 0 ? formatSecs(durationSec) : "";
+                            const subtext = durationSec > 0 ? formatSecs(durationSec) : "";
                             let isMissedOrRejected = false;
 
                             if (logType === "answered") {
@@ -1240,7 +1240,7 @@ export default function ChatPage() {
                             );
                           })()
                         ) : isEditing ? (
-                          <div className="flex items-center gap-2 w-full min-w-[260px] max-w-md bg-muted p-2 rounded-xl border">
+                          <div className="flex items-center gap-2 w-full min-w-65 max-w-md bg-muted p-2 rounded-xl border">
                             <Input
                               value={editingMsgContent}
                               onChange={(e) => setEditingMsgContent(e.target.value)}
