@@ -9,6 +9,10 @@ import {
   Send,
   Menu,
   Phone,
+  PhoneIncoming,
+  PhoneOutgoing,
+  PhoneMissed,
+  PhoneOff,
   Video,
   Search,
   UserPlus,
@@ -19,6 +23,9 @@ import {
   Trash2,
   Edit2,
   Check,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ChevronRight,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -26,6 +33,8 @@ import { createClient } from "@/lib/supabase/client";
 import { useParams, useRouter } from "next/navigation";
 import { ActionConfirmModal } from "@/components/ui/action-confirm-modal";
 import { ToastNotification } from "@/components/ui/toast-notification";
+import { VoiceCallModal } from "@/components/chat/VoiceCallModal";
+import { useAudioCall } from "@/hooks/useAudioCall";
 
 interface Profile {
   id: string;
@@ -50,6 +59,7 @@ interface MessageItem {
   content: string;
   created_at: string;
   is_edited?: boolean;
+  is_deleted?: boolean;
 }
 
 interface ModalState {
@@ -64,6 +74,7 @@ interface ModalState {
 
 export default function ChatPage() {
   const t = useTranslations("Chat");
+  const tCall = useTranslations("Call");
   const supabase = createClient();
   const params = useParams();
   const router = useRouter();
@@ -99,6 +110,24 @@ export default function ChatPage() {
   // Sidebar search for saved conversations
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
 
+  // Desktop sidebar collapse toggle state
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("chatlan_sidebar_open");
+    if (saved !== null) {
+      setIsSidebarOpen(saved === "true");
+    }
+  }, []);
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem("chatlan_sidebar_open", String(next));
+      return next;
+    });
+  };
+
   // System-wide User Search Modal State
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [systemSearchQuery, setSystemSearchQuery] = useState("");
@@ -111,6 +140,8 @@ export default function ChatPage() {
   const showToast = (msg: string, type: "success" | "error" | "info" = "success") => {
     setToast({ message: msg, type });
   };
+
+  const audioCall = useAudioCall(currentUser, showToast);
 
   // Auto scroll to bottom
   const scrollToBottom = () => {
@@ -546,7 +577,7 @@ export default function ChatPage() {
     });
   };
 
-  // Execute soft message deletion (Replace content with translated deleted message)
+  // Execute soft message deletion (Sets is_deleted: true column in DB)
   const executeDeleteMessage = async (msg: MessageItem) => {
     if (!isMessageWithin15Mins(msg.created_at)) {
       showToast(t("deleteWindowExceeded"), "error");
@@ -555,19 +586,19 @@ export default function ChatPage() {
     }
 
     setIsModalActionLoading(true);
-    const deletedText = t("messageDeleted");
     try {
       const { error } = await supabase
         .from("messages")
-        .update({ content: deletedText })
+        .update({ is_deleted: true })
         .eq("id", msg.id)
         .eq("sender_id", currentUser.id);
 
       if (error) {
-        showToast("Error: " + error.message, "error");
+        console.error("Error deleting message:", error);
+        showToast("Error deleting message: " + error.message, "error");
       } else {
         setMessages((prev) =>
-          prev.map((m) => (m.id === msg.id ? { ...m, content: deletedText } : m))
+          prev.map((m) => (m.id === msg.id ? { ...m, is_deleted: true } : m))
         );
         showToast(t("msgDeleteSuccess"), "success");
       }
@@ -740,12 +771,23 @@ export default function ChatPage() {
     <div className="flex flex-col h-full bg-muted/30">
       {/* Sidebar Header */}
       <div className="p-4 border-b space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">{t("conversations")}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSidebar}
+              className="hidden md:inline-flex h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
+              title={t("toggleSidebar")}
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </Button>
+            <h2 className="text-xl font-bold truncate">{t("conversations")}</h2>
+          </div>
           <Button
             size="sm"
             onClick={() => setIsNewChatModalOpen(true)}
-            className="gap-1.5 text-xs font-semibold shadow-xs"
+            className="gap-1.5 text-xs font-semibold shadow-xs shrink-0"
           >
             <MessageSquarePlus className="h-4 w-4" />
             <span>{t("newChat")}</span>
@@ -777,9 +819,26 @@ export default function ChatPage() {
                 chat.lastMessage === "تم حذف هذه الرسالة" ||
                 chat.lastMessage === "This message was deleted";
 
-              const displayLastMsg = isLastMsgDeleted
-                ? t("messageDeleted")
-                : chat.lastMessage;
+              const isCallLog = chat.lastMessage?.startsWith("[call_log:");
+              let displayLastMsg = chat.lastMessage;
+
+              if (isLastMsgDeleted) {
+                displayLastMsg = t("messageDeleted");
+              } else if (isCallLog && chat.lastMessage) {
+                const parts = chat.lastMessage.replace("[call_log:", "").replace("]", "").split(":");
+                const logType = parts[0];
+                if (logType === "answered") {
+                  displayLastMsg = `📞 ${tCall("voiceCall")}`;
+                } else if (logType === "missed") {
+                  displayLastMsg = `📞 ${tCall("callLogMissed")}`;
+                } else if (logType === "rejected") {
+                  displayLastMsg = `📞 ${tCall("callLogRejected")}`;
+                } else if (logType === "busy") {
+                  displayLastMsg = `📞 ${tCall("callLogBusy")}`;
+                } else {
+                  displayLastMsg = `📞 ${tCall("voiceCall")}`;
+                }
+              }
 
               return (
                 <div
@@ -900,45 +959,89 @@ export default function ChatPage() {
         isLoading={isModalActionLoading}
       />
 
-      {/* Desktop Sidebar */}
-      <div className="hidden md:flex w-80 flex-col border-r">
+      {/* Voice Call Modal Overlay */}
+      <VoiceCallModal
+        callState={audioCall.callState}
+        otherUser={audioCall.otherUser}
+        durationSeconds={audioCall.durationSeconds}
+        isMuted={audioCall.isMuted}
+        onAccept={audioCall.acceptCall}
+        onReject={audioCall.rejectCall}
+        onEndCall={audioCall.endCall}
+        onToggleMute={audioCall.toggleMute}
+        remoteAudioRef={audioCall.remoteAudioRef}
+      />
+
+      {/* Mobile Sidebar View (shown when no chat is selected on mobile) */}
+      <div className={`w-full flex-col h-full md:hidden ${selectedChat ? "hidden" : "flex"}`}>
         {renderSidebarContent()}
       </div>
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      {/* Desktop Sidebar View (Collapsible) */}
+      <div
+        className={`hidden md:flex flex-col border-r transition-all duration-300 ease-in-out shrink-0 overflow-hidden ${
+          isSidebarOpen ? "w-80 opacity-100" : "w-0 opacity-0 border-none"
+        }`}
+      >
+        {renderSidebarContent()}
+      </div>
+
+      {/* Main Chat Area (Mobile: visible when chat selected, Desktop: always visible) */}
+      <div
+        className={`flex-1 flex-col min-w-0 h-full overflow-hidden ${
+          selectedChat ? "flex" : "hidden md:flex"
+        }`}
+      >
         {selectedChat && activeConversation ? (
           <>
             {/* Active Chat Header */}
-            <div className="shrink-0 flex items-center justify-between p-4 border-b bg-background/95 backdrop-blur z-10 supports-backdrop-filter:bg-background/60">
-              <div className="flex items-center gap-3">
-                <Sheet>
-                  <SheetTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 w-9 md:hidden">
-                    <Menu className="h-5 w-5" />
-                  </SheetTrigger>
-                  <SheetContent side="left" className="p-0 w-80">
-                    {renderSidebarContent()}
-                  </SheetContent>
-                </Sheet>
-                <div className="relative">
-                  <Avatar className="h-10 w-10 border border-border/50">
+            <div className="shrink-0 flex items-center justify-between p-3 sm:p-4 border-b bg-background/95 backdrop-blur z-10 supports-backdrop-filter:bg-background/60">
+              <div className="flex items-center gap-2 sm:gap-3 overflow-hidden me-2">
+                {/* Mobile Back Button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSelectedChat(null)}
+                  className="h-9 w-9 text-muted-foreground hover:text-foreground md:hidden shrink-0"
+                  title={t("backToChats")}
+                >
+                  <ChevronRight className="h-5 w-5 rtl:rotate-0 ltr:rotate-180" />
+                </Button>
+
+                {/* Desktop Toggle Sidebar Button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleSidebar}
+                  className="hidden md:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground shrink-0 me-1"
+                  title={t("toggleSidebar")}
+                >
+                  {isSidebarOpen ? (
+                    <PanelLeftClose className="h-5 w-5" />
+                  ) : (
+                    <PanelLeftOpen className="h-5 w-5 text-primary" />
+                  )}
+                </Button>
+
+                <div className="relative shrink-0">
+                  <Avatar className="h-9 w-9 sm:h-10 sm:w-10 border border-border/50">
                     <AvatarImage src={activeConversation.otherUser.avatar_url} />
                     <AvatarFallback>{(activeConversation.otherUser.display_name || activeConversation.otherUser.username)[0]?.toUpperCase()}</AvatarFallback>
                   </Avatar>
                   {isOtherUserOnline && (
-                    <span className="absolute bottom-0 ltr:right-0 rtl:left-0 block h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
+                    <span className="absolute bottom-0 ltr:right-0 rtl:left-0 block h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
                   )}
                 </div>
-                <div>
-                  <h3 className="font-bold text-sm leading-snug">
+                <div className="overflow-hidden">
+                  <h3 className="font-bold text-sm sm:text-base leading-snug truncate">
                     {activeConversation.otherUser.display_name || activeConversation.otherUser.username}
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground">@{activeConversation.otherUser.username}</span>
+                  <div className="flex items-center gap-1.5 overflow-hidden">
+                    <span className="text-[11px] text-muted-foreground truncate">@{activeConversation.otherUser.username}</span>
                     {isOtherUserOnline ? (
-                      <span className="text-xs text-emerald-500 font-medium">• {t("online")}</span>
+                      <span className="text-xs text-emerald-500 font-medium shrink-0">• {t("online")}</span>
                     ) : (
-                      <span className="text-xs text-muted-foreground font-medium">• {t("offline")}</span>
+                      <span className="text-xs text-muted-foreground font-medium shrink-0">• {t("offline")}</span>
                     )}
                   </div>
                 </div>
@@ -946,7 +1049,23 @@ export default function ChatPage() {
 
               {/* Action Buttons: Phone, Video, Delete Conv, and Close Chat */}
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="icon">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    if (activeConversation) {
+                      audioCall.startCall({
+                        id: activeConversation.otherUser.id,
+                        name: activeConversation.otherUser.display_name || activeConversation.otherUser.username,
+                        username: activeConversation.otherUser.username,
+                        avatarUrl: activeConversation.otherUser.avatar_url,
+                        conversationId: activeConversation.id,
+                      });
+                    }
+                  }}
+                  title={tCall("voiceCall")}
+                  className="hover:bg-emerald-500/10 hover:text-emerald-500 text-muted-foreground transition-colors"
+                >
                   <Phone className="h-5 w-5" />
                 </Button>
                 <Button variant="ghost" size="icon">
@@ -978,8 +1097,14 @@ export default function ChatPage() {
               <div className="space-y-4">
                 {messages.map((msg) => {
                   const isMe = msg.sender_id === currentUser.id;
-                  const isDeleted = msg.content === t("messageDeleted") || msg.content === "تم حذف هذه الرسالة" || msg.content === "This message was deleted";
+                  const isDeleted = Boolean(
+                    msg.is_deleted ||
+                    msg.content === t("messageDeleted") ||
+                    msg.content === "تم حذف هذه الرسالة" ||
+                    msg.content === "This message was deleted"
+                  );
                   const isEditing = editingMsgId === msg.id;
+                  const isCallLog = msg.content.startsWith("[call_log:");
                   const isWithin15Mins = isMessageWithin15Mins(msg.created_at);
                   const msgTime = new Date(msg.created_at).toLocaleTimeString([], {
                     hour: "2-digit",
@@ -996,7 +1121,7 @@ export default function ChatPage() {
                       {/* Inner Container wrapped tightly around bubble for exact button attachment */}
                       <div className="relative group inline-flex items-center">
                         {/* Hover action menu for sent messages */}
-                        {isMe && !isEditing && !isDeleted && (
+                        {isMe && !isEditing && !isDeleted && !isCallLog && (
                           <div className="absolute top-1/2 -translate-y-1/2 ltr:-left-16 rtl:-right-16 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all duration-150 bg-background/90 backdrop-blur-xs p-1 rounded-lg border shadow-xs z-10 shrink-0">
                             {/* Edit Button */}
                             <button
@@ -1025,8 +1150,96 @@ export default function ChatPage() {
                           </div>
                         )}
 
-                        {/* Inline Editing Form or Message Bubble */}
-                        {isEditing ? (
+                        {/* Inline Editing Form, Call Log Bubble, or Normal Message Bubble */}
+                        {isCallLog ? (
+                          (() => {
+                            const parts = msg.content.replace("[call_log:", "").replace("]", "").split(":");
+                            const logType = parts[0];
+                            const durationSec = parts[1] ? parseInt(parts[1], 10) : 0;
+
+                            const formatSecs = (sec: number) => {
+                              const m = Math.floor(sec / 60);
+                              const s = sec % 60;
+                              return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+                            };
+
+                            let IconComponent = PhoneOutgoing;
+                            let title = tCall("callLogOutgoing");
+                            let subtext = durationSec > 0 ? formatSecs(durationSec) : "";
+                            let isMissedOrRejected = false;
+
+                            if (logType === "answered") {
+                              if (isMe) {
+                                IconComponent = PhoneOutgoing;
+                                title = tCall("callLogOutgoing");
+                              } else {
+                                IconComponent = PhoneIncoming;
+                                title = tCall("callLogIncoming");
+                              }
+                            } else if (logType === "rejected") {
+                              IconComponent = PhoneOff;
+                              title = tCall("callLogRejected");
+                              isMissedOrRejected = true;
+                            } else if (logType === "missed") {
+                              IconComponent = PhoneMissed;
+                              title = tCall("callLogMissed");
+                              isMissedOrRejected = true;
+                            } else if (logType === "busy") {
+                              IconComponent = PhoneOff;
+                              title = tCall("callLogBusy");
+                              isMissedOrRejected = true;
+                            }
+
+                            return (
+                              <div
+                                className={`flex items-center gap-3 p-3 rounded-2xl border shadow-2xs transition-all ${
+                                  isMissedOrRejected
+                                    ? "bg-destructive/10 border-destructive/20 text-foreground"
+                                    : "bg-muted/90 border-border text-foreground"
+                                }`}
+                              >
+                                <div
+                                  className={`p-2.5 rounded-full shrink-0 ${
+                                    isMissedOrRejected
+                                      ? "bg-destructive/20 text-destructive"
+                                      : "bg-emerald-500/20 text-emerald-500"
+                                  }`}
+                                >
+                                  <IconComponent className="h-4 w-4 rtl:-scale-x-100" />
+                                </div>
+                                <div className="flex-1 min-w-0 me-2">
+                                  <p className="text-xs font-bold truncate leading-snug">{title}</p>
+                                  {subtext && (
+                                    <p className="text-[11px] text-muted-foreground font-medium mt-0.5">
+                                      {subtext}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Re-call Button for Missed/Rejected Calls */}
+                                {!isMe && activeConversation && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      audioCall.startCall({
+                                        id: activeConversation.otherUser.id,
+                                        name: activeConversation.otherUser.display_name || activeConversation.otherUser.username,
+                                        username: activeConversation.otherUser.username,
+                                        avatarUrl: activeConversation.otherUser.avatar_url,
+                                        conversationId: activeConversation.id,
+                                      });
+                                    }}
+                                    className="h-7 text-[11px] px-2.5 gap-1 shrink-0 rounded-full border-primary/40 hover:bg-primary hover:text-primary-foreground transition-all shadow-2xs"
+                                  >
+                                    <Phone className="h-3 w-3" />
+                                    <span>{tCall("callBack")}</span>
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })()
+                        ) : isEditing ? (
                           <div className="flex items-center gap-2 w-full min-w-[260px] max-w-md bg-muted p-2 rounded-xl border">
                             <Input
                               value={editingMsgContent}
@@ -1135,14 +1348,27 @@ export default function ChatPage() {
               <p className="text-sm text-muted-foreground">{t("welcomeSubtext")}</p>
             </div>
 
-            {/* Start New Chat Button */}
-            <Button
-              onClick={() => setIsNewChatModalOpen(true)}
-              className="gap-2 px-6 py-5 rounded-full font-semibold shadow-md"
-            >
-              <MessageSquarePlus className="h-5 w-5" />
-              <span>{t("newChat")}</span>
-            </Button>
+            {/* Start New Chat & Desktop Expand Sidebar Button */}
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <Button
+                onClick={() => setIsNewChatModalOpen(true)}
+                className="gap-2 px-6 py-5 rounded-full font-semibold shadow-md"
+              >
+                <MessageSquarePlus className="h-5 w-5" />
+                <span>{t("newChat")}</span>
+              </Button>
+
+              {!isSidebarOpen && (
+                <Button
+                  variant="outline"
+                  onClick={toggleSidebar}
+                  className="hidden md:flex items-center gap-2 px-5 py-5 rounded-full font-semibold border-primary/30 hover:bg-primary/10"
+                >
+                  <PanelLeftOpen className="h-5 w-5 text-primary" />
+                  <span>{t("toggleSidebar")}</span>
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -51,10 +51,11 @@
     "closeChat": "Close Chat",
     "searching": "Searching...",
     "edited": "Edited",
+    "deleted": "Deleted",
     "messageDeleted": "This message was deleted",
     "deleteWindowExceeded": "Sorry, messages cannot be deleted after 15 minutes of sending.",
     "confirmDeleteMsgTitle": "Confirm Message Deletion",
-    "confirmDeleteMsgDesc": "Are you sure you want to delete this message? Its content will be replaced with 'This message was deleted'.",
+    "confirmDeleteMsgDesc": "Are you sure you want to delete this message? It will display as 'This message was deleted' while preserving original content in database.",
     "deleteMessage": "Delete Message",
     "editMessage": "Edit Message",
     "deleteConvTitle": "Confirm Delete Conversation",
@@ -64,7 +65,9 @@
     "saveEdits": "Save Changes",
     "msgEditSuccess": "Message edited successfully",
     "msgDeleteSuccess": "Message deleted successfully",
-    "noMessagesYet": "No messages yet"
+    "noMessagesYet": "No messages yet",
+    "toggleSidebar": "Toggle Sidebar",
+    "backToChats": "Back to Chats"
   },
   "Account": {
     "settingsTitle": "Account Settings",
@@ -84,5 +87,39 @@
     "saving": "Saving...",
     "saveChanges": "Save Changes",
     "avatarNote": "Your profile photo is updated automatically or via picture URL"
+  },
+  "Call": {
+    "voiceCall": "Voice Call",
+    "incomingCall": "Incoming voice call...",
+    "calling": "Calling...",
+    "ringing": "Ringing...",
+    "connected": "Connected",
+    "callEnded": "Call ended",
+    "callRejected": "Call rejected",
+    "callCanceled": "Call canceled",
+    "userBusy": "User is currently busy in another call",
+    "micError": "Microphone access denied. Please check your browser permissions.",
+    "accept": "Accept",
+    "decline": "Decline",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "endCall": "End Call",
+    "inCall": "Call in progress",
+    "callLogOutgoing": "Outgoing Voice Call",
+    "callLogIncoming": "Incoming Voice Call",
+    "callLogMissed": "Missed Call",
+    "callLogRejected": "Declined Call",
+    "callLogBusy": "User Busy",
+    "callBack": "Call Back"
+  },
+  "Pwa": {
+    "installApp": "Install App",
+    "installTooltip": "Install ChatLan on your device to use without a browser",
+    "installSuccess": "ChatLan installed successfully!",
+    "modalTitle": "Install ChatLan App",
+    "modalSub": "You can use ChatLan as a standalone app without opening the browser:",
+    "stepChromeDesktop": "On Desktop: Click the install icon in your address bar or menu ⬅️ 'Install ChatLan'.",
+    "stepMobile": "On Mobile (Android/iOS): Open browser menu (⋮) or share button and tap 'Add to Home Screen'.",
+    "gotIt": "Got it"
   }
 }

@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { useParams } from "next/navigation";
 import { AccountSettingsModal } from "./account-settings-modal";
+import { PwaInstaller } from "./pwa-installer";
 
 export function Navbar() {
   const t = useTranslations("Navbar");
@@ -117,6 +118,9 @@ export function Navbar() {
           <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
             <div className="w-full flex-1 md:w-auto md:flex-none"></div>
             <nav className="flex items-center space-x-2 gap-1">
+              {/* PWA Install App Button */}
+              <PwaInstaller />
+
               {/* Language Switcher */}
               <DropdownMenu>
                 <DropdownMenuTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 w-9 px-0 ms-2 cursor-pointer">

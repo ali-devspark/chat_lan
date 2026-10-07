@@ -51,10 +51,11 @@
     "closeChat": "إغلاق المحادثة",
     "searching": "جاري البحث...",
     "edited": "مُعدّلة",
+    "deleted": "محذوفة",
     "messageDeleted": "تم حذف هذه الرسالة",
     "deleteWindowExceeded": "عذراً، لا يمكن حذف الرسالة بعد مرور 15 دقيقة من وقت الإرسال.",
     "confirmDeleteMsgTitle": "تأكيد حذف الرسالة",
-    "confirmDeleteMsgDesc": "هل أنت تأكد من رغبتك في حذف هذه الرسالة؟ سيتم استبدال محتواها بعبارة 'تم حذف هذه الرسالة'.",
+    "confirmDeleteMsgDesc": "هل أنت تأكد من رغبتك في حذف هذه الرسالة؟ سيظهر نص 'تم حذف هذه الرسالة' مع إبقاء الرسالة المحفوظة بنظام البيانات.",
     "deleteMessage": "حذف الرسالة",
     "editMessage": "تعديل الرسالة",
     "deleteConvTitle": "تأكيد حذف المحادثة",
@@ -64,7 +65,9 @@
     "saveEdits": "حفظ التعديلات",
     "msgEditSuccess": "تم تعديل الرسالة بنجاح",
     "msgDeleteSuccess": "تم حذف الرسالة بنجاح",
-    "noMessagesYet": "لا توجد رسائل بعد"
+    "noMessagesYet": "لا توجد رسائل بعد",
+    "toggleSidebar": "تبديل القائمة الجانبية",
+    "backToChats": "رجوع للمحادثات"
   },
   "Account": {
     "settingsTitle": "إعدادات الحساب",
@@ -84,5 +87,39 @@
     "saving": "جاري الحفظ...",
     "saveChanges": "حفظ التعديلات",
     "avatarNote": "يتم تحديث صورتك الشخصية تلقائياً أو عبر رابط الصورة"
+  },
+  "Call": {
+    "voiceCall": "مكالمة صوتية",
+    "incomingCall": "مكالمة صوتية واردة...",
+    "calling": "جاري الاتصال...",
+    "ringing": "جاري الرنين...",
+    "connected": "متصل",
+    "callEnded": "انتهت المكالمة",
+    "callRejected": "تم رفض المكالمة",
+    "callCanceled": "تم إلغاء المكالمة",
+    "userBusy": "المستخدم في مكالمة أخرى حالياً",
+    "micError": "تعذر الوصول للميكروفون. يرجى التحقق من الصلاحيات.",
+    "accept": "قبول",
+    "decline": "رفض",
+    "mute": "كتم",
+    "unmute": "إلغاء الكتم",
+    "endCall": "إنهاء المكالمة",
+    "inCall": "مكالمة جارية",
+    "callLogOutgoing": "مكالمة صوتية صادرة",
+    "callLogIncoming": "مكالمة صوتية واردة",
+    "callLogMissed": "مكالمة فائتة",
+    "callLogRejected": "مكالمة مرفوضة",
+    "callLogBusy": "المستخدم مشغول",
+    "callBack": "إعادة الاتصال"
+  },
+  "Pwa": {
+    "installApp": "تثبيت التطبيق",
+    "installTooltip": "تثبيت ChatLan على جهازك لاستخدامه بدون متصفح",
+    "installSuccess": "تم تثبيت ChatLan بنجاح!",
+    "modalTitle": "تثبيت تطبيق ChatLan",
+    "modalSub": "يمكنك استخدام ChatLan كـ تطبيق مستقل بدون الحاجة لتشغيل المتصفح:",
+    "stepChromeDesktop": "في الكمبيوتر: اضغط على أيقونة التثبيت في شريط عنوان المتصفح أو خيارات القائمة ⬅️ 'تثبيت ChatLan'.",
+    "stepMobile": "في الهاتف (Android/iOS): اضغط على قائمة المتصفح (⋮) أو زر المشاركة واختر 'إضافة إلى الشاشة الرئيسية'.",
+    "gotIt": "حسناً، فهمت"
   }
 }
