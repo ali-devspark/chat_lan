@@ -561,6 +561,9 @@ export function useAudioCall(
 
       channel
         .on("broadcast", { event: "call-accept" }, async ({ payload }: { payload?: Record<string, unknown> }) => {
+          if (payload?.senderId === currentUser?.id) return;
+          if (!isCallerRef.current) return;
+
           console.log("Room signal received: call-accept", payload);
           ringtoneManager.stopRingtone();
 
@@ -594,7 +597,10 @@ export function useAudioCall(
             endCall();
           }
         })
-        .on("broadcast", { event: "call-offer" }, async ({ payload }: { payload: { offer: RTCSessionDescriptionInit } }) => {
+        .on("broadcast", { event: "call-offer" }, async ({ payload }: { payload: { offer: RTCSessionDescriptionInit; senderId?: string } }) => {
+          if (payload?.senderId === currentUser?.id) return;
+          if (isCallerRef.current) return;
+
           console.log("Room signal received: call-offer");
           const { offer } = payload;
           const pc = createPeerConnection();
@@ -629,10 +635,19 @@ export function useAudioCall(
             endCall();
           }
         })
-        .on("broadcast", { event: "call-answer" }, async ({ payload }: { payload: { answer: RTCSessionDescriptionInit } }) => {
+        .on("broadcast", { event: "call-answer" }, async ({ payload }: { payload: { answer: RTCSessionDescriptionInit; senderId?: string } }) => {
+          if (payload?.senderId === currentUser?.id) return;
+          if (!isCallerRef.current) return;
+
           console.log("Room signal received: call-answer");
           const { answer } = payload;
           if (pcRef.current) {
+            // Guard: in WebRTC, an answer can only be set when the peer is in "have-local-offer"
+            if (pcRef.current.signalingState !== "have-local-offer") {
+              console.warn("Ignoring call-answer because signalingState is:", pcRef.current.signalingState);
+              return;
+            }
+
             try {
               await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
 
@@ -652,11 +667,15 @@ export function useAudioCall(
               startTimer();
             } catch (err) {
               console.error("Error setting remote answer:", err);
-              endCall();
+              const currentState = pcRef.current?.signalingState as string | undefined;
+              if (currentState !== "stable") {
+                endCall();
+              }
             }
           }
         })
-        .on("broadcast", { event: "call-ice-candidate" }, async ({ payload }: { payload: { candidate: RTCIceCandidateInit } }) => {
+        .on("broadcast", { event: "call-ice-candidate" }, async ({ payload }: { payload: { candidate: RTCIceCandidateInit; senderId?: string } }) => {
+          if (payload?.senderId === currentUser?.id) return;
           const { candidate } = payload;
           if (!candidate) return;
 
@@ -674,15 +693,18 @@ export function useAudioCall(
             pendingIceCandidates.current.push(candidate);
           }
         })
-        .on("broadcast", { event: "call-busy" }, ({ payload }: { payload?: { callId?: string } }) => {
+        .on("broadcast", { event: "call-busy" }, ({ payload }: { payload?: { callId?: string; senderId?: string } }) => {
+          if (payload?.senderId === currentUser?.id) return;
           console.log("Room signal received: call-busy");
           handleCallBusy(payload);
         })
-        .on("broadcast", { event: "call-hangup" }, ({ payload }: { payload?: { callId?: string } }) => {
+        .on("broadcast", { event: "call-hangup" }, ({ payload }: { payload?: { callId?: string; senderId?: string } }) => {
+          if (payload?.senderId === currentUser?.id) return;
           console.log("Room signal received: call-hangup");
           handleCallHangup(payload);
         })
-        .on("broadcast", { event: "call-reject" }, ({ payload }: { payload?: { callId?: string } }) => {
+        .on("broadcast", { event: "call-reject" }, ({ payload }: { payload?: { callId?: string; senderId?: string } }) => {
+          if (payload?.senderId === currentUser?.id) return;
           console.log("Room signal received: call-reject");
           handleCallRejected(payload);
         })
@@ -703,7 +725,7 @@ export function useAudioCall(
           }
         });
     },
-    [supabase, createPeerConnection, getMicrophoneStream, sendRoomSignal, startTimer, handleCallBusy, handleCallHangup, handleCallRejected, endCall]
+    [currentUser?.id, supabase, createPeerConnection, getMicrophoneStream, sendRoomSignal, startTimer, handleCallBusy, handleCallHangup, handleCallRejected, endCall]
   );
 
   // Initiate an Outgoing Voice Call
