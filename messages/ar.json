@@ -29,7 +29,10 @@
     "username": "اسم المستخدم المميز (Username)",
     "submitLogin": "دخول",
     "submitRegister": "إنشاء حساب",
-    "errorAuth": "حدث خطأ في المصادقة"
+    "errorAuth": "حدث خطأ في المصادقة",
+    "googleSignIn": "المتابعة باستخدام Google",
+    "orDivider": "أو",
+    "checkingSession": "جاري التحقق من الحساب..."
   },
   "Chat": {
     "conversations": "المحادثات",
@@ -67,6 +70,8 @@
     "msgDeleteSuccess": "تم حذف الرسالة بنجاح",
     "noMessagesYet": "لا توجد رسائل بعد",
     "toggleSidebar": "تبديل القائمة الجانبية",
+    "collapseSidebar": "تصغير القائمة الجانبية",
+    "expandSidebar": "تكبير القائمة الجانبية",
     "backToChats": "رجوع للمحادثات"
   },
   "Account": {
@@ -105,8 +110,8 @@
     "unmute": "إلغاء الكتم",
     "endCall": "إنهاء المكالمة",
     "inCall": "مكالمة جارية",
-    "callLogOutgoing": "مكالمة صوتية صادرة",
-    "callLogIncoming": "مكالمة صوتية واردة",
+    "callLogOutgoing": "مكالمة صادرة",
+    "callLogIncoming": "مكالمة واردة",
     "callLogMissed": "مكالمة فائتة",
     "callLogRejected": "مكالمة مرفوضة",
     "callLogBusy": "المستخدم مشغول",

@@ -39,12 +39,12 @@ export function Navbar() {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
+    supabase.auth.getUser().then((res: { data: { user: SupabaseUser | null } }) => {
+      setUser(res.data.user);
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: unknown, session: { user: SupabaseUser } | null) => {
       setUser(session?.user ?? null);
     });
 

@@ -29,7 +29,10 @@
     "username": "Unique Username",
     "submitLogin": "Sign In",
     "submitRegister": "Create Account",
-    "errorAuth": "Authentication failed"
+    "errorAuth": "Authentication failed",
+    "googleSignIn": "Continue with Google",
+    "orDivider": "OR",
+    "checkingSession": "Checking session..."
   },
   "Chat": {
     "conversations": "Conversations",
@@ -67,6 +70,8 @@
     "msgDeleteSuccess": "Message deleted successfully",
     "noMessagesYet": "No messages yet",
     "toggleSidebar": "Toggle Sidebar",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar",
     "backToChats": "Back to Chats"
   },
   "Account": {
@@ -105,8 +110,8 @@
     "unmute": "Unmute",
     "endCall": "End Call",
     "inCall": "Call in progress",
-    "callLogOutgoing": "Outgoing Voice Call",
-    "callLogIncoming": "Incoming Voice Call",
+    "callLogOutgoing": "Outgoing Call",
+    "callLogIncoming": "Incoming Call",
     "callLogMissed": "Missed Call",
     "callLogRejected": "Declined Call",
     "callLogBusy": "User Busy",

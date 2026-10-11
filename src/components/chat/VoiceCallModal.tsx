@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Phone, PhoneOff, Mic, MicOff } from "lucide-react";
+import { AudioFrequencyVisualizer } from "@/components/chat/AudioFrequencyVisualizer";
 
 export type CallState = "idle" | "incoming" | "outgoing" | "connected" | "ended" | "rejected" | "busy";
 
@@ -24,6 +25,7 @@ interface VoiceCallModalProps {
   onEndCall: () => void;
   onToggleMute: () => void;
   remoteAudioRef: React.RefObject<HTMLAudioElement | null>;
+  remoteStream?: MediaStream | null;
 }
 
 export function VoiceCallModal({
@@ -36,6 +38,7 @@ export function VoiceCallModal({
   onEndCall,
   onToggleMute,
   remoteAudioRef,
+  remoteStream = null,
 }: VoiceCallModalProps) {
   const t = useTranslations("Call");
 
@@ -67,21 +70,27 @@ export function VoiceCallModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
-      {/* Hidden Audio Element for WebRTC Remote Stream */}
-      <audio ref={remoteAudioRef} autoPlay style={{ display: "none" }} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+      {/* Invisible but active Audio Element for WebRTC Remote Stream */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        playsInline
+        aria-hidden="true"
+        className="sr-only"
+      />
 
-      <div className="bg-card text-card-foreground border rounded-3xl max-w-sm w-full p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden space-y-6">
+      <div className="bg-card text-card-foreground border rounded-3xl max-w-sm w-full p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden space-y-5">
         {/* Subtle Background Glow */}
         <div className="absolute -top-24 -left-24 w-48 h-48 bg-primary/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
 
         {/* User Avatar with Pulse Ring */}
-        <div className="relative my-2">
+        <div className="relative my-1">
           {(callState === "incoming" || callState === "outgoing" || callState === "connected") && (
             <span className="absolute -inset-3 rounded-full bg-primary/20 animate-ping opacity-75 pointer-events-none" />
           )}
-          <Avatar className="h-28 w-28 border-4 border-background shadow-xl relative z-10">
+          <Avatar className="h-24 w-24 border-4 border-background shadow-xl relative z-10">
             <AvatarImage src={otherUser.avatarUrl} />
             <AvatarFallback className="text-2xl font-bold bg-primary text-primary-foreground">
               {otherUser.name[0]?.toUpperCase() || "U"}
@@ -96,33 +105,40 @@ export function VoiceCallModal({
           </h3>
           <p className="text-xs text-muted-foreground">@{otherUser.username}</p>
 
-          <div className="pt-2">
+          <div className="pt-1.5">
             {callState === "connected" ? (
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-500 text-xs font-semibold border border-emerald-500/20">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-500 text-xs font-semibold border border-emerald-500/20 shadow-sm">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span>{formatDuration(durationSeconds)}</span>
               </div>
             ) : (
-              <p className="text-sm font-medium text-primary animate-pulse">
+              <p
+                className={`text-sm font-medium animate-pulse ${callState === "busy"
+                    ? "text-amber-500 font-semibold"
+                    : callState === "rejected"
+                      ? "text-destructive font-semibold"
+                      : "text-primary"
+                  }`}
+              >
                 {getStatusText()}
               </p>
             )}
           </div>
         </div>
 
-        {/* Live Audio Visualizer Equalizer Effect (When Connected) */}
+        {/* Real-time Audio Frequency Visualizer (When Connected) */}
         {callState === "connected" && (
-          <div className="flex items-center justify-center gap-1.5 h-8 py-1">
-            <span className="w-1.5 h-4 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-            <span className="w-1.5 h-7 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-            <span className="w-1.5 h-5 bg-emerald-500 rounded-full animate-bounce" />
-            <span className="w-1.5 h-8 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.25s]" />
-            <span className="w-1.5 h-4 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.1s]" />
+          <div className="w-full z-10 pt-1">
+            <AudioFrequencyVisualizer
+              stream={remoteStream}
+              isActive={callState === "connected"}
+              isMuted={isMuted}
+            />
           </div>
         )}
 
         {/* Action Controls */}
-        <div className="w-full pt-4 z-10">
+        <div className="w-full pt-3 z-10">
           {callState === "incoming" ? (
             /* Incoming Call Controls: Accept or Decline */
             <div className="flex items-center justify-center gap-6">
@@ -196,7 +212,14 @@ export function VoiceCallModal({
           ) : (
             /* Ended / Rejected / Busy State */
             <div className="py-2">
-              <p className="text-sm font-semibold text-muted-foreground">
+              <p
+                className={`text-sm font-semibold ${callState === "busy"
+                    ? "text-amber-500"
+                    : callState === "rejected"
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  }`}
+              >
                 {getStatusText()}
               </p>
             </div>

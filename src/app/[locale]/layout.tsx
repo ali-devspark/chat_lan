@@ -56,8 +56,8 @@ export default async function RootLayout({
   const dir = locale === 'ar' ? 'rtl' : 'ltr';
 
   return (
-    <html lang={locale} dir={dir} suppressHydrationWarning>
-      <body className={`${tajawal.variable} font-sans min-h-screen flex flex-col antialiased`}>
+    <html lang={locale} dir={dir} suppressHydrationWarning data-scroll-behavior="smooth">
+      <body suppressHydrationWarning className={`${tajawal.variable} font-sans min-h-screen flex flex-col antialiased`}>
         <NextIntlClientProvider messages={messages}>
           <ThemeProvider
             attribute="class"

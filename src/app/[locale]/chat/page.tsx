@@ -46,6 +46,7 @@ interface ConversationItem {
   id: string;
   otherUser: Profile;
   lastMessage?: string;
+  lastMessageSenderId?: string;
   time?: string;
   updated_at: string;
   unreadCount?: number;
@@ -135,9 +136,9 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const showToast = (msg: string, type: "success" | "error" | "info" = "success") => {
+  const showToast = useCallback((msg: string, type: "success" | "error" | "info" = "success") => {
     setToast({ message: msg, type });
-  };
+  }, []);
 
   const audioCall = useAudioCall(currentUser, showToast);
 
@@ -161,11 +162,48 @@ export default function ChatPage() {
       }
       setCurrentUser(user);
       setLoadingUser(false);
+
+      // Ensure profile exists for Google / OAuth users
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (!profile) {
+          const rawName =
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            user.email?.split("@")[0] ||
+            "user";
+          const cleanUser = (user.user_metadata?.username || rawName)
+            .replace(/\s+/g, "_")
+            .toLowerCase();
+          await supabase.from("profiles").upsert(
+            {
+              id: user.id,
+              username: cleanUser,
+              display_name:
+                user.user_metadata?.full_name ||
+                user.user_metadata?.name ||
+                cleanUser,
+              avatar_url:
+                user.user_metadata?.avatar_url ||
+                user.user_metadata?.picture ||
+                `https://avatar.vercel.sh/${cleanUser}`,
+            },
+            { onConflict: "id" }
+          );
+        }
+      } catch (err) {
+        console.warn("Auto profile sync note:", err);
+      }
     }
     loadUser();
 
     // Realtime auth listener - redirects immediately on logout
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string, session: { user: SupabaseUser } | null) => {
       if (event === "SIGNED_OUT" || !session) {
         setCurrentUser(null);
         window.location.href = `/${locale}/login`;
@@ -200,10 +238,10 @@ export default function ChatPage() {
         });
         setOnlineUserIds(ids);
       })
-      .on("presence", { event: "join" }, ({ key }) => {
+      .on("presence", { event: "join" }, ({ key }: { key: string }) => {
         setOnlineUserIds((prev) => new Set(prev).add(key));
       })
-      .on("presence", { event: "leave" }, ({ key }) => {
+      .on("presence", { event: "leave" }, ({ key }: { key: string }) => {
         setOnlineUserIds((prev) => {
           const next = new Set(prev);
           next.delete(key);
@@ -211,7 +249,7 @@ export default function ChatPage() {
         });
       });
 
-    presenceChannel.subscribe(async (status) => {
+    presenceChannel.subscribe(async (status: string) => {
       if (status === "SUBSCRIBED") {
         await presenceChannel.track({
           user_id: currentUser.id,
@@ -260,7 +298,7 @@ export default function ChatPage() {
         return;
       }
 
-      const conversationIds = memberData.map((m) => m.conversation_id);
+      const conversationIds = memberData.map((m: { conversation_id: string }) => m.conversation_id);
 
       const { data: allMembers, error: allMembersError } = await supabase
         .from("conversation_members")
@@ -273,7 +311,7 @@ export default function ChatPage() {
 
       for (const convId of conversationIds) {
         const otherMemberObj = allMembers.find(
-          (m) => m.conversation_id === convId && m.user_id !== userId
+          (m: { conversation_id: string; user_id: string }) => m.conversation_id === convId && m.user_id !== userId
         );
 
         const otherProfile = (otherMemberObj?.profiles as unknown as Profile) || {
@@ -285,7 +323,7 @@ export default function ChatPage() {
 
         const { data: lastMsgData } = await supabase
           .from("messages")
-          .select("content, created_at")
+          .select("content, created_at, sender_id")
           .eq("conversation_id", convId)
           .order("created_at", { ascending: false })
           .limit(1)
@@ -308,6 +346,7 @@ export default function ChatPage() {
             avatar_url: otherProfile.avatar_url || `https://avatar.vercel.sh/${otherProfile.username}`,
           },
           lastMessage: lastMsgData?.content || "",
+          lastMessageSenderId: lastMsgData?.sender_id || "",
           time: lastMsgData ? new Date(lastMsgData.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "",
           updated_at: lastMsgData?.created_at || new Date().toISOString(),
           unreadCount: unreadCount || 0,
@@ -398,7 +437,7 @@ export default function ChatPage() {
       let existingConvId: string | null = null;
 
       if (myConvs && myConvs.length > 0) {
-        const myConvIds = myConvs.map((c) => c.conversation_id);
+        const myConvIds = myConvs.map((c: { conversation_id: string }) => c.conversation_id);
         const { data: targetConvs } = await supabase
           .from("conversation_members")
           .select("conversation_id")
@@ -671,9 +710,9 @@ export default function ChatPage() {
           schema: "public",
           table: "messages",
         },
-        async (payload) => {
+        async (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => {
           if (payload.eventType === "INSERT") {
-            const newMsg = payload.new as MessageItem;
+            const newMsg = payload.new as unknown as MessageItem;
 
             // If message belongs to current open chat
             if (selectedChat && newMsg.conversation_id === selectedChat) {
@@ -699,6 +738,7 @@ export default function ChatPage() {
                 const updatedList = [...prev];
                 const targetConv = { ...updatedList[existingIndex] };
                 targetConv.lastMessage = newMsg.content;
+                targetConv.lastMessageSenderId = newMsg.sender_id;
                 targetConv.time = formattedTime;
                 targetConv.updated_at = newMsg.created_at;
 
@@ -716,15 +756,17 @@ export default function ChatPage() {
               }
             });
           } else if (payload.eventType === "UPDATE") {
-            const updatedMsg = payload.new as MessageItem;
+            const updatedMsg = payload.new as unknown as MessageItem;
             if (selectedChat && updatedMsg.conversation_id === selectedChat) {
               setMessages((prev) =>
                 prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m))
               );
             }
           } else if (payload.eventType === "DELETE") {
-            const deletedId = payload.old.id;
-            setMessages((prev) => prev.filter((m) => m.id !== deletedId));
+            const deletedId = (payload.old as { id?: string })?.id;
+            if (deletedId) {
+              setMessages((prev) => prev.filter((m) => m.id !== deletedId));
+            }
           }
         }
       )
@@ -767,47 +809,134 @@ export default function ChatPage() {
   const activeConversation = conversations.find((c) => c.id === selectedChat);
   const isOtherUserOnline = activeConversation ? onlineUserIds.has(activeConversation.otherUser.id) : false;
 
-  const renderSidebarContent = () => (
-    <div className="flex flex-col h-full bg-muted/30">
-      {/* Sidebar Header */}
-      <div className="p-4 border-b space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 overflow-hidden">
+  const renderSidebarContent = (isCollapsed = false) => {
+    if (isCollapsed) {
+      return (
+        <div className="flex flex-col h-full bg-muted/30 items-center py-3 select-none">
+          {/* Collapsed Sidebar Header Actions */}
+          <div className="flex flex-col items-center gap-2 pb-3 border-b border-border/50 w-full px-2">
             <Button
               variant="ghost"
               size="icon"
               onClick={toggleSidebar}
-              className="hidden md:inline-flex h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
-              title={t("toggleSidebar")}
+              className="h-9 w-9 rounded-xl text-primary hover:text-primary hover:bg-primary/10 shrink-0 transition-colors"
+              title={t("expandSidebar")}
             >
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftOpen className="h-5 w-5 rtl:-scale-x-100" />
+              <span className="sr-only">{t("expandSidebar")}</span>
             </Button>
-            <h2 className="text-xl font-bold truncate">{t("conversations")}</h2>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsNewChatModalOpen(true)}
+              className="h-9 w-9 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent shrink-0 transition-colors"
+              title={t("newChat")}
+            >
+              <MessageSquarePlus className="h-5 w-5" />
+              <span className="sr-only">{t("newChat")}</span>
+            </Button>
           </div>
-          <Button
-            size="sm"
-            onClick={() => setIsNewChatModalOpen(true)}
-            className="gap-1.5 text-xs font-semibold shadow-xs shrink-0"
-          >
-            <MessageSquarePlus className="h-4 w-4" />
-            <span>{t("newChat")}</span>
-          </Button>
+
+          {/* Collapsed Conversations List (Avatars with badges) */}
+          <ScrollArea className="flex-1 w-full">
+            <div className="flex flex-col items-center gap-2 py-3 px-1.5">
+              {filteredConversations.length > 0 ? (
+                filteredConversations.map((chat) => {
+                  const hasUnread = (chat.unreadCount || 0) > 0;
+                  const displayName = chat.otherUser.display_name || chat.otherUser.username;
+                  const isUserOnline = onlineUserIds.has(chat.otherUser.id);
+                  const isSelected = selectedChat === chat.id;
+
+                  return (
+                    <div
+                      key={chat.id}
+                      onClick={() => {
+                        setSelectedChat(chat.id);
+                        markConversationAsRead(chat.id);
+                      }}
+                      title={`${displayName}${isUserOnline ? ` (${t("online")})` : ""}`}
+                      className={`relative p-1.5 rounded-2xl cursor-pointer transition-all duration-150 flex items-center justify-center group ${
+                        isSelected
+                          ? "bg-primary/15 ring-2 ring-primary shadow-xs"
+                          : "hover:bg-accent/70"
+                      }`}
+                    >
+                      <div className="relative shrink-0">
+                        <Avatar className="h-10 w-10 border border-border/50">
+                          <AvatarImage src={chat.otherUser.avatar_url} />
+                          <AvatarFallback>
+                            {displayName[0]?.toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        {isUserOnline && (
+                          <span className="absolute bottom-0 ltr:right-0 rtl:left-0 block h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-background" />
+                        )}
+                        {hasUnread && (
+                          <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground shadow-xs animate-pulse">
+                            {chat.unreadCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div
+                  className="p-2 text-center text-muted-foreground/60 cursor-pointer"
+                  onClick={() => setIsNewChatModalOpen(true)}
+                  title={t("newChat")}
+                >
+                  <MessageSquarePlus className="h-5 w-5 mx-auto" />
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col h-full bg-muted/30">
+        {/* Sidebar Header */}
+        <div className="p-4 border-b space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleSidebar}
+                className="hidden md:inline-flex h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
+                title={t("collapseSidebar")}
+              >
+                <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
+              </Button>
+              <h2 className="text-xl font-bold truncate">{t("conversations")}</h2>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setIsNewChatModalOpen(true)}
+              className="gap-1.5 text-xs font-semibold shadow-xs shrink-0"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+              <span>{t("newChat")}</span>
+            </Button>
+          </div>
+
+          {/* Local Search Input */}
+          <div className="relative">
+            <Search className="absolute ltr:left-3 rtl:right-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={t("searchSavedChats")}
+              value={sidebarSearchQuery}
+              onChange={(e) => setSidebarSearchQuery(e.target.value)}
+              className="ltr:pl-9 rtl:pr-9"
+            />
+          </div>
         </div>
 
-        {/* Local Search Input */}
-        <div className="relative">
-          <Search className="absolute ltr:left-3 rtl:right-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={t("searchSavedChats")}
-            value={sidebarSearchQuery}
-            onChange={(e) => setSidebarSearchQuery(e.target.value)}
-            className="ltr:pl-9 rtl:pr-9"
-          />
-        </div>
-      </div>
-
-      {/* Saved Conversations List */}
-      <ScrollArea className="flex-1">
+        {/* Saved Conversations List */}
+        <ScrollArea className="flex-1">
         <div className="p-2 space-y-1">
           {filteredConversations.length > 0 ? (
             filteredConversations.map((chat) => {
@@ -827,16 +956,22 @@ export default function ChatPage() {
               } else if (isCallLog && chat.lastMessage) {
                 const parts = chat.lastMessage.replace("[call_log:", "").replace("]", "").split(":");
                 const logType = parts[0];
-                if (logType === "answered") {
-                  displayLastMsg = `📞 ${tCall("voiceCall")}`;
-                } else if (logType === "missed") {
-                  displayLastMsg = `📞 ${tCall("callLogMissed")}`;
-                } else if (logType === "rejected") {
-                  displayLastMsg = `📞 ${tCall("callLogRejected")}`;
-                } else if (logType === "busy") {
-                  displayLastMsg = `📞 ${tCall("callLogBusy")}`;
+                const isLastMsgMe = chat.lastMessageSenderId === currentUser?.id;
+
+                if (isLastMsgMe) {
+                  displayLastMsg = `📞 ${tCall("callLogOutgoing")}`;
                 } else {
-                  displayLastMsg = `📞 ${tCall("voiceCall")}`;
+                  if (logType === "answered") {
+                    displayLastMsg = `📞 ${tCall("callLogIncoming")}`;
+                  } else if (logType === "missed") {
+                    displayLastMsg = `📞 ${tCall("callLogMissed")}`;
+                  } else if (logType === "rejected") {
+                    displayLastMsg = `📞 ${tCall("callLogRejected")}`;
+                  } else if (logType === "busy") {
+                    displayLastMsg = `📞 ${tCall("callLogBusy")}`;
+                  } else {
+                    displayLastMsg = `📞 ${tCall("callLogIncoming")}`;
+                  }
                 }
               }
 
@@ -847,9 +982,8 @@ export default function ChatPage() {
                     setSelectedChat(chat.id);
                     markConversationAsRead(chat.id);
                   }}
-                  className={`group flex items-center justify-between gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
-                    selectedChat === chat.id ? "bg-accent shadow-xs" : "hover:bg-accent/50"
-                  }`}
+                  className={`group flex items-center justify-between gap-3 p-3 rounded-xl cursor-pointer transition-colors ${selectedChat === chat.id ? "bg-accent shadow-xs" : "hover:bg-accent/50"
+                    }`}
                 >
                   <div className="flex items-center gap-3 overflow-hidden flex-1">
                     <div className="relative shrink-0">
@@ -921,6 +1055,7 @@ export default function ChatPage() {
       </ScrollArea>
     </div>
   );
+};
 
   if (loadingUser) {
     return (
@@ -970,27 +1105,26 @@ export default function ChatPage() {
         onEndCall={audioCall.endCall}
         onToggleMute={audioCall.toggleMute}
         remoteAudioRef={audioCall.remoteAudioRef}
+        remoteStream={audioCall.remoteStream}
       />
 
       {/* Mobile Sidebar View (shown when no chat is selected on mobile) */}
       <div className={`w-full flex-col h-full md:hidden ${selectedChat ? "hidden" : "flex"}`}>
-        {renderSidebarContent()}
+        {renderSidebarContent(false)}
       </div>
 
       {/* Desktop Sidebar View (Collapsible) */}
       <div
-        className={`hidden md:flex flex-col border-r transition-all duration-300 ease-in-out shrink-0 overflow-hidden ${
-          isSidebarOpen ? "w-80 opacity-100" : "w-0 opacity-0 border-none"
-        }`}
+        className={`hidden md:flex flex-col border-r transition-all duration-300 ease-in-out shrink-0 overflow-hidden ${isSidebarOpen ? "w-80" : "w-[68px]"
+          }`}
       >
-        {renderSidebarContent()}
+        {renderSidebarContent(!isSidebarOpen)}
       </div>
 
       {/* Main Chat Area (Mobile: visible when chat selected, Desktop: always visible) */}
       <div
-        className={`flex-1 flex-col min-w-0 h-full overflow-hidden ${
-          selectedChat ? "flex" : "hidden md:flex"
-        }`}
+        className={`flex-1 flex-col min-w-0 h-full overflow-hidden ${selectedChat ? "flex" : "hidden md:flex"
+          }`}
       >
         {selectedChat && activeConversation ? (
           <>
@@ -1014,12 +1148,12 @@ export default function ChatPage() {
                   size="icon"
                   onClick={toggleSidebar}
                   className="hidden md:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground shrink-0 me-1"
-                  title={t("toggleSidebar")}
+                  title={isSidebarOpen ? t("collapseSidebar") : t("expandSidebar")}
                 >
                   {isSidebarOpen ? (
-                    <PanelLeftClose className="h-5 w-5" />
+                    <PanelLeftClose className="h-5 w-5 rtl:-scale-x-100" />
                   ) : (
-                    <PanelLeftOpen className="h-5 w-5 text-primary" />
+                    <PanelLeftOpen className="h-5 w-5 rtl:-scale-x-100 text-primary" />
                   )}
                 </Button>
 
@@ -1114,9 +1248,8 @@ export default function ChatPage() {
                   return (
                     <div
                       key={msg.id}
-                      className={`flex flex-col max-w-[85%] ${
-                        isMe ? "ltr:ml-auto rtl:mr-auto items-end" : "ltr:mr-auto rtl:ml-auto items-start"
-                      }`}
+                      className={`flex flex-col max-w-[85%] ${isMe ? "ltr:ml-auto rtl:mr-auto items-end" : "ltr:mr-auto rtl:ml-auto items-start"
+                        }`}
                     >
                       {/* Inner Container wrapped tightly around bubble for exact button attachment */}
                       <div className="relative group inline-flex items-center">
@@ -1138,11 +1271,10 @@ export default function ChatPage() {
                             {/* Delete Button */}
                             <button
                               onClick={() => promptDeleteMessage(msg)}
-                              className={`p-1 transition-colors rounded-sm ${
-                                isWithin15Mins
+                              className={`p-1 transition-colors rounded-sm ${isWithin15Mins
                                   ? "text-muted-foreground hover:text-destructive"
                                   : "text-muted-foreground/40 hover:text-muted-foreground/60"
-                              }`}
+                                }`}
                               title={t("deleteMessage")}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -1168,42 +1300,44 @@ export default function ChatPage() {
                             const subtext = durationSec > 0 ? formatSecs(durationSec) : "";
                             let isMissedOrRejected = false;
 
-                            if (logType === "answered") {
-                              if (isMe) {
-                                IconComponent = PhoneOutgoing;
-                                title = tCall("callLogOutgoing");
-                              } else {
+                            if (isMe) {
+                              // للمتصل: المكالمة دائماً صادرة
+                              IconComponent = PhoneOutgoing;
+                              title = tCall("callLogOutgoing");
+                              isMissedOrRejected = false;
+                            } else {
+                              // للطرف الآخر: تعتمد التسمية على نتيجة المكالمة
+                              if (logType === "answered") {
                                 IconComponent = PhoneIncoming;
                                 title = tCall("callLogIncoming");
+                                isMissedOrRejected = false;
+                              } else if (logType === "rejected") {
+                                IconComponent = PhoneOff;
+                                title = tCall("callLogRejected");
+                                isMissedOrRejected = true;
+                              } else if (logType === "missed") {
+                                IconComponent = PhoneMissed;
+                                title = tCall("callLogMissed");
+                                isMissedOrRejected = true;
+                              } else if (logType === "busy") {
+                                IconComponent = PhoneOff;
+                                title = tCall("callLogBusy");
+                                isMissedOrRejected = true;
                               }
-                            } else if (logType === "rejected") {
-                              IconComponent = PhoneOff;
-                              title = tCall("callLogRejected");
-                              isMissedOrRejected = true;
-                            } else if (logType === "missed") {
-                              IconComponent = PhoneMissed;
-                              title = tCall("callLogMissed");
-                              isMissedOrRejected = true;
-                            } else if (logType === "busy") {
-                              IconComponent = PhoneOff;
-                              title = tCall("callLogBusy");
-                              isMissedOrRejected = true;
                             }
 
                             return (
                               <div
-                                className={`flex items-center gap-3 p-3 rounded-2xl border shadow-2xs transition-all ${
-                                  isMissedOrRejected
+                                className={`flex items-center gap-3 p-3 rounded-2xl border shadow-2xs transition-all ${isMissedOrRejected
                                     ? "bg-destructive/10 border-destructive/20 text-foreground"
                                     : "bg-muted/90 border-border text-foreground"
-                                }`}
+                                  }`}
                               >
                                 <div
-                                  className={`p-2.5 rounded-full shrink-0 ${
-                                    isMissedOrRejected
+                                  className={`p-2.5 rounded-full shrink-0 ${isMissedOrRejected
                                       ? "bg-destructive/20 text-destructive"
                                       : "bg-emerald-500/20 text-emerald-500"
-                                  }`}
+                                    }`}
                                 >
                                   <IconComponent className="h-4 w-4 rtl:-scale-x-100" />
                                 </div>
@@ -1217,7 +1351,7 @@ export default function ChatPage() {
                                 </div>
 
                                 {/* Re-call Button for Missed/Rejected Calls */}
-                                {!isMe && activeConversation && (
+                                {!isMe && activeConversation && isMissedOrRejected && (
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -1269,22 +1403,20 @@ export default function ChatPage() {
                           </div>
                         ) : isDeleted ? (
                           <div
-                            className={`px-3.5 py-2 rounded-2xl text-xs italic select-none border shadow-2xs flex items-center gap-1.5 ${
-                              isMe
+                            className={`px-3.5 py-2 rounded-2xl text-xs italic select-none border shadow-2xs flex items-center gap-1.5 ${isMe
                                 ? "bg-muted/70 text-muted-foreground border-border/40 ltr:rounded-tr-sm rtl:rounded-tl-sm"
                                 : "bg-muted/70 text-muted-foreground border-border/40 ltr:rounded-tl-sm rtl:rounded-tr-sm"
-                            }`}
+                              }`}
                           >
                             <Trash2 className="h-3.5 w-3.5 opacity-60 shrink-0" />
                             <span>{t("messageDeleted")}</span>
                           </div>
                         ) : (
                           <div
-                            className={`px-4 py-2 rounded-2xl wrap-break-word ${
-                              isMe
+                            className={`px-4 py-2 rounded-2xl wrap-break-word ${isMe
                                 ? "bg-primary text-primary-foreground ltr:rounded-tr-sm rtl:rounded-tl-sm"
                                 : "bg-muted ltr:rounded-tl-sm rtl:rounded-tr-sm"
-                            }`}
+                              }`}
                           >
                             {msg.content}
                           </div>
@@ -1364,8 +1496,8 @@ export default function ChatPage() {
                   onClick={toggleSidebar}
                   className="hidden md:flex items-center gap-2 px-5 py-5 rounded-full font-semibold border-primary/30 hover:bg-primary/10"
                 >
-                  <PanelLeftOpen className="h-5 w-5 text-primary" />
-                  <span>{t("toggleSidebar")}</span>
+                  <PanelLeftOpen className="h-5 w-5 rtl:-scale-x-100 text-primary" />
+                  <span>{t("expandSidebar")}</span>
                 </Button>
               )}
             </div>
