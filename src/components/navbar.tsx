@@ -13,7 +13,7 @@ import { buttonVariants } from "./ui/button";
 import { Moon, Sun, Globe, LogOut, User as UserIcon, ChevronDown } from "lucide-react";
 import { usePathname, useRouter, Link } from "@/i18n/routing";
 import { createClient } from "@/lib/supabase/client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { useParams } from "next/navigation";
 import { AccountSettingsModal } from "./account-settings-modal";
@@ -27,7 +27,7 @@ export function Navbar() {
   const router = useRouter();
   const params = useParams();
   const locale = (params?.locale as string) || "ar";
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<{

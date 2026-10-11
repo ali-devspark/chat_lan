@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Phone, PhoneOff, Mic, MicOff } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Volume2 } from "lucide-react";
 import { AudioFrequencyVisualizer } from "@/components/chat/AudioFrequencyVisualizer";
 
 export type CallState = "idle" | "incoming" | "outgoing" | "connected" | "ended" | "rejected" | "busy";
@@ -26,6 +26,8 @@ interface VoiceCallModalProps {
   onToggleMute: () => void;
   remoteAudioRef: React.RefObject<HTMLAudioElement | null>;
   remoteStream?: MediaStream | null;
+  isAudioBlocked?: boolean;
+  onUnblockAudio?: () => void;
 }
 
 export function VoiceCallModal({
@@ -39,6 +41,8 @@ export function VoiceCallModal({
   onToggleMute,
   remoteAudioRef,
   remoteStream = null,
+  isAudioBlocked = false,
+  onUnblockAudio,
 }: VoiceCallModalProps) {
   const t = useTranslations("Call");
 
@@ -128,12 +132,24 @@ export function VoiceCallModal({
 
         {/* Real-time Audio Frequency Visualizer (When Connected) */}
         {callState === "connected" && (
-          <div className="w-full z-10 pt-1">
+          <div className="w-full z-10 pt-1 space-y-2">
             <AudioFrequencyVisualizer
               stream={remoteStream}
               isActive={callState === "connected"}
               isMuted={isMuted}
             />
+
+            {/* Mobile Browser Autoplay Unblock Button */}
+            {isAudioBlocked && (
+              <button
+                type="button"
+                onClick={onUnblockAudio}
+                className="w-full py-2.5 px-3 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-semibold flex items-center justify-center gap-2 animate-pulse cursor-pointer hover:bg-amber-500/30 transition-all shadow-sm"
+              >
+                <Volume2 className="h-4 w-4 shrink-0" />
+                <span>انقر هنا لسماع صوت المتصل (حظر المتصفح الصوت تلقائياً)</span>
+              </button>
+            )}
           </div>
         )}
 

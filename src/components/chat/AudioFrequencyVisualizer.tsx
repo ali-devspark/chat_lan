@@ -17,12 +17,14 @@ export function AudioFrequencyVisualizer({
   className = "",
 }: AudioFrequencyVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const levelBarRef = useRef<HTMLDivElement | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [audioLevel, setAudioLevel] = useState(0); // 0 to 100 percentage
   const [hasReceivedSound, setHasReceivedSound] = useState(false);
 
+  const isSpeakingRef = useRef(false);
+  const hasReceivedSoundRef = useRef(false);
+
   const effectiveIsSpeaking = isActive && Boolean(stream) && isSpeaking;
-  const effectiveAudioLevel = isActive && Boolean(stream) ? audioLevel : 0;
 
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -86,15 +88,28 @@ export function AudioFrequencyVisualizer({
         const avgEnergy = count > 0 ? sum / count : 0;
         const normalizedLevel = Math.min(100, Math.round((avgEnergy / 140) * 100));
 
+        // Update DOM bar directly without triggering React re-renders (zero FPS drop on mobile)
+        if (levelBarRef.current) {
+          levelBarRef.current.style.width = `${Math.max(6, normalizedLevel)}%`;
+        }
+
         if (avgEnergy > 10) {
-          setIsSpeaking(true);
-          setHasReceivedSound(true);
-          setAudioLevel(normalizedLevel);
+          if (!isSpeakingRef.current) {
+            isSpeakingRef.current = true;
+            setIsSpeaking(true);
+          }
+          if (!hasReceivedSoundRef.current) {
+            hasReceivedSoundRef.current = true;
+            setHasReceivedSound(true);
+          }
           if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
           speechTimeoutRef.current = setTimeout(() => {
             if (isMounted) {
+              isSpeakingRef.current = false;
               setIsSpeaking(false);
-              setAudioLevel(0);
+              if (levelBarRef.current) {
+                levelBarRef.current.style.width = "6%";
+              }
             }
           }, 350);
         }
@@ -157,11 +172,17 @@ export function AudioFrequencyVisualizer({
       console.error("AudioFrequencyVisualizer error:", err);
     }
 
+    const currentLevelBar = levelBarRef.current;
+
     return () => {
       isMounted = false;
+      isSpeakingRef.current = false;
+      hasReceivedSoundRef.current = false;
       setIsSpeaking(false);
-      setAudioLevel(0);
       setHasReceivedSound(false);
+      if (currentLevelBar) {
+        currentLevelBar.style.width = "6%";
+      }
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
@@ -200,12 +221,13 @@ export function AudioFrequencyVisualizer({
         {/* Dynamic Voice Level Indicator Bar */}
         <div className="w-full h-1 bg-muted/40 rounded-full overflow-hidden mt-1.5">
           <div
+            ref={levelBarRef}
             className={`h-full transition-all duration-150 rounded-full ${
               effectiveIsSpeaking
                 ? "bg-linear-to-r from-emerald-500 via-teal-400 to-cyan-400 shadow-sm shadow-emerald-400/80"
                 : "bg-emerald-500/30"
             }`}
-            style={{ width: `${Math.max(6, effectiveAudioLevel)}%` }}
+            style={{ width: "6%" }}
           />
         </div>
       </div>

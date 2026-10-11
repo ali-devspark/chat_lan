@@ -14,17 +14,51 @@ export interface CallUser {
   conversationId?: string;
 }
 
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
+function getIceServers(): RTCConfiguration {
+  const customTurnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  const customTurnUser = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const customTurnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+
+  const servers: RTCIceServer[] = [
+    // High-availability public Google STUN servers
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
     { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
     { urls: "stun:stun.cloudflare.com:3478" },
     { urls: "stun:stun.services.mozilla.com" },
-  ],
-  iceCandidatePoolSize: 10,
-};
+    // Free Public TURN relay servers (OpenRelay by Metered)
+    // REQUIRED for mobile cellular (4G/5G) <-> home Wi-Fi/Laptop NAT traversal across firewalls
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turns:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ];
+
+  if (customTurnUrl) {
+    servers.unshift({
+      urls: customTurnUrl.split(",").map((u) => u.trim()),
+      username: customTurnUser || "",
+      credential: customTurnCred || "",
+    });
+  }
+
+  return {
+    iceServers: servers,
+    iceCandidatePoolSize: 10,
+  };
+}
 
 function getCallRoomTopic(id1: string, id2: string): string {
   const sorted = [id1, id2].sort();
@@ -42,6 +76,7 @@ export function useAudioCall(
   const [isMuted, setIsMuted] = useState(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [isAudioBlocked, setIsAudioBlocked] = useState(false);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -87,17 +122,50 @@ export function useAudioCall(
     durationSecondsRef.current = durationSeconds;
   }, [durationSeconds]);
 
-  // Ensure remote audio element plays when stream is assigned
-  useEffect(() => {
-    if (remoteStream && remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = remoteStream;
-      remoteAudioRef.current.muted = false;
-      remoteAudioRef.current.volume = 1.0;
-      remoteAudioRef.current.play().catch((err) => {
-        console.warn("remoteAudio.play() caught:", err);
+  // Play remote audio safely handling mobile autoplay restrictions
+  const playRemoteAudio = useCallback(() => {
+    const audioEl = remoteAudioRef.current;
+    const stream = remoteStreamRef.current;
+    if (!audioEl || !stream) return;
+
+    audioEl.srcObject = stream;
+    audioEl.muted = false;
+    audioEl.volume = 1.0;
+
+    const playPromise = audioEl.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setIsAudioBlocked(false);
+        })
+        .catch((err) => {
+          console.warn("[useAudioCall] Remote audio play caught:", err);
+          // If browser blocked autoplay, flag it so user can click to unblock
+          setIsAudioBlocked(true);
+        });
+    }
+  }, []);
+
+  // Pre-prime / unlock audio on direct user touch/click gesture (Call / Accept button)
+  const unlockAudio = useCallback(() => {
+    const audioEl = remoteAudioRef.current;
+    if (audioEl) {
+      audioEl.muted = false;
+      audioEl.volume = 1.0;
+      audioEl.play().then(() => {
+        setIsAudioBlocked(false);
+      }).catch(() => {
+        // Pre-prime catch can be silently ignored
       });
     }
-  }, [remoteStream]);
+  }, []);
+
+  // Ensure remote audio element plays when stream is assigned
+  useEffect(() => {
+    if (remoteStream) {
+      playRemoteAudio();
+    }
+  }, [remoteStream, playRemoteAudio]);
 
   // Mark call ID as recently ended so in-flight pulses cannot resurrect it
   const markCallEnded = useCallback((callId: string | null) => {
@@ -496,7 +564,7 @@ export function useAudioCall(
       pcRef.current.close();
     }
 
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    const pc = new RTCPeerConnection(getIceServers());
     pcRef.current = pc;
 
     pc.onicecandidate = (event) => {
@@ -505,8 +573,12 @@ export function useAudioCall(
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      console.log("[WebRTC] ICE Connection State:", pc.iceConnectionState);
+    };
+
     pc.ontrack = (event) => {
-      console.log("WebRTC ontrack event received:", event);
+      console.log("[WebRTC] ontrack event received:", event);
       let stream: MediaStream | null = null;
       if (event.streams && event.streams[0]) {
         stream = event.streams[0];
@@ -515,17 +587,13 @@ export function useAudioCall(
       }
 
       if (stream) {
+        // Explicitly guarantee all remote audio tracks are unmuted and live
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
         remoteStreamRef.current = stream;
         setRemoteStream(stream);
-
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = stream;
-          remoteAudioRef.current.muted = false;
-          remoteAudioRef.current.volume = 1.0;
-          remoteAudioRef.current.play().catch((err) => {
-            console.warn("remoteAudio.play() error on ontrack:", err);
-          });
-        }
+        playRemoteAudio();
       }
     };
 
@@ -544,7 +612,7 @@ export function useAudioCall(
     };
 
     return pc;
-  }, [sendRoomSignal, resetToIdle, logCallMessage]);
+  }, [sendRoomSignal, resetToIdle, logCallMessage, playRemoteAudio]);
 
   // Connect & Join Call Room Channel with full duplex signaling
   const joinCallRoom = useCallback(
@@ -748,6 +816,9 @@ export function useAudioCall(
       const roomTopic = getCallRoomTopic(currentUser.id, targetUser.id);
       joinCallRoom(roomTopic);
 
+      // Prime and unlock audio on user click for mobile browser autoplay authorization
+      unlockAudio();
+
       // Pre-warm microphone permission on user click gesture
       getMicrophoneStream();
 
@@ -834,7 +905,7 @@ export function useAudioCall(
         }
       }, 45000);
     },
-    [currentUser, cleanupCall, joinCallRoom, getMicrophoneStream, supabase, handleCallBusy, handleCallRejected, handleCallHangup, endCall]
+    [currentUser, cleanupCall, joinCallRoom, getMicrophoneStream, supabase, handleCallBusy, handleCallRejected, handleCallHangup, endCall, unlockAudio]
   );
 
   // Accept an Incoming Voice Call
@@ -843,6 +914,9 @@ export function useAudioCall(
     if (!caller || !currentUser?.id) return;
 
     ringtoneManager.stopRingtone();
+
+    // Prime and unlock audio on user click gesture (critical for iOS Safari and mobile Chrome)
+    unlockAudio();
 
     const stream = await getMicrophoneStream();
     if (!stream) {
@@ -858,7 +932,7 @@ export function useAudioCall(
 
     // Signal accept to caller
     sendRoomSignal("call-accept");
-  }, [currentUser?.id, getMicrophoneStream, sendRoomSignal, sendDirectSignal, resetToIdle, startTimer]);
+  }, [currentUser?.id, getMicrophoneStream, sendRoomSignal, sendDirectSignal, resetToIdle, startTimer, unlockAudio]);
 
   // Reject an Incoming Voice Call
   const rejectCall = useCallback(async () => {
@@ -1013,6 +1087,8 @@ export function useAudioCall(
     isMuted,
     remoteStream,
     localStream,
+    isAudioBlocked,
+    playRemoteAudio,
     startCall,
     acceptCall,
     rejectCall,

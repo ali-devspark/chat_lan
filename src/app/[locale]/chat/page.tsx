@@ -26,7 +26,7 @@ import {
   PanelLeftOpen,
   ChevronRight,
 } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useParams } from "next/navigation";
 import { ActionConfirmModal } from "@/components/ui/action-confirm-modal";
@@ -75,7 +75,7 @@ interface ModalState {
 export default function ChatPage() {
   const t = useTranslations("Chat");
   const tCall = useTranslations("Call");
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const params = useParams();
   const locale = (params?.locale as string) || "ar";
 
@@ -263,9 +263,11 @@ export default function ChatPage() {
     };
   }, [currentUser?.id, supabase]);
 
+  const currentUserId = currentUser?.id;
+
   // Mark conversation as read in state & database
   const markConversationAsRead = useCallback(async (convId: string) => {
-    if (!currentUser) return;
+    if (!currentUserId) return;
 
     // Update local state immediately
     setConversations((prev) =>
@@ -278,12 +280,12 @@ export default function ChatPage() {
         .from("messages")
         .update({ is_read: true })
         .eq("conversation_id", convId)
-        .neq("sender_id", currentUser.id)
+        .neq("sender_id", currentUserId)
         .eq("is_read", false);
     } catch (err) {
       console.error("Error marking messages as read:", err);
     }
-  }, [currentUser, supabase]);
+  }, [currentUserId, supabase]);
 
   // Fetch user's saved conversations
   const fetchConversations = useCallback(async (userId: string) => {
@@ -370,7 +372,7 @@ export default function ChatPage() {
   useEffect(() => {
     const query = systemSearchQuery.trim();
     if (!query || !currentUser) {
-      setSystemSearchResults([]);
+      setSystemSearchResults((prev) => (prev.length === 0 ? prev : []));
       setIsSearchingSystem(false);
       return;
     }
@@ -1094,6 +1096,16 @@ export default function ChatPage() {
         isLoading={isModalActionLoading}
       />
 
+      {/* Persistent WebRTC Audio Player to guarantee zero unmount and early mobile browser unlock */}
+      <audio
+        ref={audioCall.remoteAudioRef}
+        autoPlay
+        playsInline
+        preload="auto"
+        aria-hidden="true"
+        className="sr-only"
+      />
+
       {/* Voice Call Modal Overlay */}
       <VoiceCallModal
         callState={audioCall.callState}
@@ -1106,6 +1118,8 @@ export default function ChatPage() {
         onToggleMute={audioCall.toggleMute}
         remoteAudioRef={audioCall.remoteAudioRef}
         remoteStream={audioCall.remoteStream}
+        isAudioBlocked={audioCall.isAudioBlocked}
+        onUnblockAudio={audioCall.playRemoteAudio}
       />
 
       {/* Mobile Sidebar View (shown when no chat is selected on mobile) */}
@@ -1115,7 +1129,7 @@ export default function ChatPage() {
 
       {/* Desktop Sidebar View (Collapsible) */}
       <div
-        className={`hidden md:flex flex-col border-r transition-all duration-300 ease-in-out shrink-0 overflow-hidden ${isSidebarOpen ? "w-80" : "w-[68px]"
+        className={`hidden md:flex flex-col border-r transition-all duration-300 ease-in-out shrink-0 overflow-hidden ${isSidebarOpen ? "w-80" : "w-17"
           }`}
       >
         {renderSidebarContent(!isSidebarOpen)}

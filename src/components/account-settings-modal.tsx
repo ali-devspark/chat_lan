@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { X, User, Settings, Loader2, Check, Shield, Mail, AtSign, Image as ImageIcon } from "lucide-react";
 import { Button } from "./ui/button";
@@ -26,7 +26,7 @@ export function AccountSettingsModal({
   onProfileUpdated,
 }: AccountSettingsModalProps) {
   const t = useTranslations("Account");
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [activeTab, setActiveTab] = useState("profile");
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
