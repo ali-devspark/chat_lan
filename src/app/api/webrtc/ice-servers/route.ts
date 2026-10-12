@@ -5,7 +5,11 @@ export async function GET() {
   const customTurnUser = process.env.TURN_USERNAME || process.env.NEXT_PUBLIC_TURN_USERNAME;
   const customTurnCred = process.env.TURN_CREDENTIAL || process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
 
-  const meteredApiKey = process.env.METERED_API_KEY || process.env.NEXT_PUBLIC_METERED_API_KEY;
+  const meteredApiUrl = process.env.METERED_API_URL || process.env.NEXT_PUBLIC_METERED_API_URL;
+  const meteredApiKey =
+    process.env.METERED_SECRET_KEY ||
+    process.env.METERED_API_KEY ||
+    process.env.NEXT_PUBLIC_METERED_API_KEY;
   const meteredDomain = process.env.METERED_DOMAIN || process.env.NEXT_PUBLIC_METERED_DOMAIN;
 
   let iceServers: RTCIceServer[] = [
@@ -18,27 +22,87 @@ export async function GET() {
     { urls: "stun:stun.services.mozilla.com" },
   ];
 
-  // 1. If Metered API key is configured, fetch live dynamic TURN credentials
+  // 1. Fetch live dynamic TURN credentials from Metered
   if (meteredApiKey) {
-    try {
-      const domainSlug = meteredDomain
-        ? meteredDomain.replace(/\.metered\.ca$/, "").trim()
-        : "";
-      const endpoint = domainSlug
-        ? `https://${domainSlug}.metered.ca/api/v1/turn/credentials?apiKey=${meteredApiKey}`
-        : `https://metered.ca/api/v1/turn/credentials?apiKey=${meteredApiKey}`;
+    const rawDomain = meteredDomain || "chatlan";
+    const domainSlug = rawDomain
+      .replace(/^https?:\/\//, "")
+      .replace(/\.metered\.(live|ca).*$/, "")
+      .replace(/\/.*$/, "")
+      .trim();
 
-      const res = await fetch(endpoint, {
+    const host = `${domainSlug}.metered.live`;
+    const key = meteredApiKey.trim();
+
+    try {
+      // First try: secretKey POST endpoint (official Metered server-side credential generation)
+      const secretRes = await fetch(`https://${host}/api/v1/turn/credential?secretKey=${key}`, {
+        method: "POST",
         next: { revalidate: 3600 },
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          iceServers = [...data, ...iceServers];
+      if (secretRes.ok) {
+        const secretData = await secretRes.json();
+        if (secretData.username && secretData.password) {
+          // If secretData returned an apiKey, fetch the complete ICE server list
+          let gotServerList = false;
+          if (secretData.apiKey) {
+            try {
+              const serversRes = await fetch(
+                `https://${host}/api/v1/turn/credentials?apiKey=${secretData.apiKey}`,
+                { next: { revalidate: 3600 } }
+              );
+              if (serversRes.ok) {
+                const sData = await serversRes.json();
+                if (Array.isArray(sData) && sData.length > 0) {
+                  iceServers = [...sData, ...iceServers];
+                  gotServerList = true;
+                }
+              }
+            } catch (e) {
+              console.warn("[ICE API] Secondary credentials list fetch failed:", e);
+            }
+          }
+
+          if (!gotServerList) {
+            iceServers.unshift(
+              { urls: "stun:stun.relay.metered.ca:80" },
+              {
+                urls: "turn:global.relay.metered.ca:80",
+                username: secretData.username,
+                credential: secretData.password,
+              },
+              {
+                urls: "turn:global.relay.metered.ca:80?transport=tcp",
+                username: secretData.username,
+                credential: secretData.password,
+              },
+              {
+                urls: "turn:global.relay.metered.ca:443",
+                username: secretData.username,
+                credential: secretData.password,
+              },
+              {
+                urls: "turns:global.relay.metered.ca:443?transport=tcp",
+                username: secretData.username,
+                credential: secretData.password,
+              }
+            );
+          }
         }
       } else {
-        console.warn(`[ICE API] Metered API responded with status ${res.status}`);
+        // Second try: standard apiKey GET endpoint
+        const apiRes = await fetch(`https://${host}/api/v1/turn/credentials?apiKey=${key}`, {
+          next: { revalidate: 3600 },
+        });
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (Array.isArray(apiData) && apiData.length > 0) {
+            iceServers = [...apiData, ...iceServers];
+          }
+        } else {
+          console.warn(`[ICE API] Metered API responded with status ${apiRes.status}`);
+        }
       }
     } catch (err) {
       console.warn("[ICE API] Error fetching Metered dynamic TURN servers:", err);
