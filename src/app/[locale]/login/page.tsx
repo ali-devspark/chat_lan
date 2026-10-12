@@ -9,12 +9,14 @@ import { Label } from "@/components/ui/label";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useParams } from "next/navigation";
+import { useRouter } from "@/i18n/routing";
 import { AlertCircle, CheckCircle2, ShieldAlert, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const t = useTranslations("Auth");
   const supabase = useMemo(() => createClient(), []);
   const params = useParams();
+  const router = useRouter();
   const locale = (params?.locale as string) || "ar";
 
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -35,7 +37,7 @@ export default function LoginPage() {
         } = await supabase.auth.getUser();
 
         if (user) {
-          window.location.replace(`/${locale}/chat`);
+          router.replace("/chat");
           return;
         }
       } catch (err) {
@@ -46,7 +48,7 @@ export default function LoginPage() {
     }
 
     checkExistingAuth();
-  }, [locale, supabase]);
+  }, [supabase, router]);
 
   const translateError = (msg: string) => {
     if (!msg) return t("errorAuth");

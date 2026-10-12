@@ -29,6 +29,7 @@ import {
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useParams } from "next/navigation";
+import { useRouter } from "@/i18n/routing";
 import { ActionConfirmModal } from "@/components/ui/action-confirm-modal";
 import { ToastNotification } from "@/components/ui/toast-notification";
 import { VoiceCallModal } from "@/components/chat/VoiceCallModal";
@@ -858,11 +859,10 @@ export default function ChatPage() {
                         markConversationAsRead(chat.id);
                       }}
                       title={`${displayName}${isUserOnline ? ` (${t("online")})` : ""}`}
-                      className={`relative p-1.5 rounded-2xl cursor-pointer transition-all duration-150 flex items-center justify-center group ${
-                        isSelected
+                      className={`relative p-1.5 rounded-2xl cursor-pointer transition-all duration-150 flex items-center justify-center group ${isSelected
                           ? "bg-primary/15 ring-2 ring-primary shadow-xs"
                           : "hover:bg-accent/70"
-                      }`}
+                        }`}
                     >
                       <div className="relative shrink-0">
                         <Avatar className="h-10 w-10 border border-border/50">
@@ -939,125 +939,125 @@ export default function ChatPage() {
 
         {/* Saved Conversations List */}
         <ScrollArea className="flex-1">
-        <div className="p-2 space-y-1">
-          {filteredConversations.length > 0 ? (
-            filteredConversations.map((chat) => {
-              const hasUnread = (chat.unreadCount || 0) > 0;
-              const displayName = chat.otherUser.display_name || chat.otherUser.username;
-              const isUserOnline = onlineUserIds.has(chat.otherUser.id);
+          <div className="p-2 space-y-1">
+            {filteredConversations.length > 0 ? (
+              filteredConversations.map((chat) => {
+                const hasUnread = (chat.unreadCount || 0) > 0;
+                const displayName = chat.otherUser.display_name || chat.otherUser.username;
+                const isUserOnline = onlineUserIds.has(chat.otherUser.id);
 
-              const isLastMsgDeleted =
-                chat.lastMessage === "تم حذف هذه الرسالة" ||
-                chat.lastMessage === "This message was deleted";
+                const isLastMsgDeleted =
+                  chat.lastMessage === "تم حذف هذه الرسالة" ||
+                  chat.lastMessage === "This message was deleted";
 
-              const isCallLog = chat.lastMessage?.startsWith("[call_log:");
-              let displayLastMsg = chat.lastMessage;
+                const isCallLog = chat.lastMessage?.startsWith("[call_log:");
+                let displayLastMsg = chat.lastMessage;
 
-              if (isLastMsgDeleted) {
-                displayLastMsg = t("messageDeleted");
-              } else if (isCallLog && chat.lastMessage) {
-                const parts = chat.lastMessage.replace("[call_log:", "").replace("]", "").split(":");
-                const logType = parts[0];
-                const isLastMsgMe = chat.lastMessageSenderId === currentUser?.id;
+                if (isLastMsgDeleted) {
+                  displayLastMsg = t("messageDeleted");
+                } else if (isCallLog && chat.lastMessage) {
+                  const parts = chat.lastMessage.replace("[call_log:", "").replace("]", "").split(":");
+                  const logType = parts[0];
+                  const isLastMsgMe = chat.lastMessageSenderId === currentUser?.id;
 
-                if (isLastMsgMe) {
-                  displayLastMsg = `📞 ${tCall("callLogOutgoing")}`;
-                } else {
-                  if (logType === "answered") {
-                    displayLastMsg = `📞 ${tCall("callLogIncoming")}`;
-                  } else if (logType === "missed") {
-                    displayLastMsg = `📞 ${tCall("callLogMissed")}`;
-                  } else if (logType === "rejected") {
-                    displayLastMsg = `📞 ${tCall("callLogRejected")}`;
-                  } else if (logType === "busy") {
-                    displayLastMsg = `📞 ${tCall("callLogBusy")}`;
+                  if (isLastMsgMe) {
+                    displayLastMsg = `📞 ${tCall("callLogOutgoing")}`;
                   } else {
-                    displayLastMsg = `📞 ${tCall("callLogIncoming")}`;
+                    if (logType === "answered") {
+                      displayLastMsg = `📞 ${tCall("callLogIncoming")}`;
+                    } else if (logType === "missed") {
+                      displayLastMsg = `📞 ${tCall("callLogMissed")}`;
+                    } else if (logType === "rejected") {
+                      displayLastMsg = `📞 ${tCall("callLogRejected")}`;
+                    } else if (logType === "busy") {
+                      displayLastMsg = `📞 ${tCall("callLogBusy")}`;
+                    } else {
+                      displayLastMsg = `📞 ${tCall("callLogIncoming")}`;
+                    }
                   }
                 }
-              }
 
-              return (
-                <div
-                  key={chat.id}
-                  onClick={() => {
-                    setSelectedChat(chat.id);
-                    markConversationAsRead(chat.id);
-                  }}
-                  className={`group flex items-center justify-between gap-3 p-3 rounded-xl cursor-pointer transition-colors ${selectedChat === chat.id ? "bg-accent shadow-xs" : "hover:bg-accent/50"
-                    }`}
-                >
-                  <div className="flex items-center gap-3 overflow-hidden flex-1">
-                    <div className="relative shrink-0">
-                      <Avatar className="h-10 w-10 border border-border/50">
-                        <AvatarImage src={chat.otherUser.avatar_url} />
-                        <AvatarFallback>{displayName[0]?.toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      {isUserOnline && (
-                        <span className="absolute bottom-0 ltr:right-0 rtl:left-0 block h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
-                      )}
-                      {hasUnread && (
-                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground shadow-xs animate-pulse md:hidden">
-                          {chat.unreadCount}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1 overflow-hidden">
-                      <div className="flex justify-between items-baseline">
-                        <div className="flex items-center gap-1.5 overflow-hidden">
-                          <span className={`truncate text-sm ${hasUnread ? "font-bold text-foreground" : "font-semibold text-foreground/90"}`}>
-                            {displayName}
-                          </span>
-                        </div>
-                        <span className={`text-[11px] ms-1 shrink-0 ${hasUnread ? "font-bold text-primary" : "text-muted-foreground"}`}>
-                          {chat.time}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-1 mt-0.5">
-                        <p className={`text-xs truncate flex-1 ${hasUnread ? "font-bold text-foreground" : "text-muted-foreground"} ${isLastMsgDeleted ? "italic opacity-80" : ""}`}>
-                          {displayLastMsg || <span className="italic text-[11px]">{t("noMessagesYet")}</span>}
-                        </p>
+                return (
+                  <div
+                    key={chat.id}
+                    onClick={() => {
+                      setSelectedChat(chat.id);
+                      markConversationAsRead(chat.id);
+                    }}
+                    className={`group flex items-center justify-between gap-3 p-3 rounded-xl cursor-pointer transition-colors ${selectedChat === chat.id ? "bg-accent shadow-xs" : "hover:bg-accent/50"
+                      }`}
+                  >
+                    <div className="flex items-center gap-3 overflow-hidden flex-1">
+                      <div className="relative shrink-0">
+                        <Avatar className="h-10 w-10 border border-border/50">
+                          <AvatarImage src={chat.otherUser.avatar_url} />
+                          <AvatarFallback>{displayName[0]?.toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        {isUserOnline && (
+                          <span className="absolute bottom-0 ltr:right-0 rtl:left-0 block h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
+                        )}
                         {hasUnread && (
-                          <span className="hidden md:inline-flex items-center justify-center min-w-5 h-5 px-1.5 py-0.5 text-[11px] font-bold rounded-full bg-primary text-primary-foreground shrink-0 shadow-xs">
+                          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground shadow-xs animate-pulse md:hidden">
                             {chat.unreadCount}
                           </span>
                         )}
                       </div>
+                      <div className="flex-1 overflow-hidden">
+                        <div className="flex justify-between items-baseline">
+                          <div className="flex items-center gap-1.5 overflow-hidden">
+                            <span className={`truncate text-sm ${hasUnread ? "font-bold text-foreground" : "font-semibold text-foreground/90"}`}>
+                              {displayName}
+                            </span>
+                          </div>
+                          <span className={`text-[11px] ms-1 shrink-0 ${hasUnread ? "font-bold text-primary" : "text-muted-foreground"}`}>
+                            {chat.time}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-1 mt-0.5">
+                          <p className={`text-xs truncate flex-1 ${hasUnread ? "font-bold text-foreground" : "text-muted-foreground"} ${isLastMsgDeleted ? "italic opacity-80" : ""}`}>
+                            {displayLastMsg || <span className="italic text-[11px]">{t("noMessagesYet")}</span>}
+                          </p>
+                          {hasUnread && (
+                            <span className="hidden md:inline-flex items-center justify-center min-w-5 h-5 px-1.5 py-0.5 text-[11px] font-bold rounded-full bg-primary text-primary-foreground shrink-0 shadow-xs">
+                              {chat.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Delete Conversation Button */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    onClick={(e) => promptDeleteConversation(chat, e)}
-                    title={t("deleteConvText")}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              );
-            })
-          ) : (
-            <div className="p-6 text-center text-sm text-muted-foreground space-y-3">
-              <p>{conversations.length === 0 ? t("noConversationsYet") : t("noUsersFound")}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsNewChatModalOpen(true)}
-                className="gap-1.5"
-              >
-                <UserPlus className="h-4 w-4" />
-                <span>{t("newChat")}</span>
-              </Button>
-            </div>
-          )}
-        </div>
-      </ScrollArea>
-    </div>
-  );
-};
+                    {/* Delete Conversation Button */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      onClick={(e) => promptDeleteConversation(chat, e)}
+                      title={t("deleteConvText")}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-6 text-center text-sm text-muted-foreground space-y-3">
+                <p>{conversations.length === 0 ? t("noConversationsYet") : t("noUsersFound")}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsNewChatModalOpen(true)}
+                  className="gap-1.5"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  <span>{t("newChat")}</span>
+                </Button>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
+    );
+  };
 
   if (loadingUser) {
     return (
@@ -1286,8 +1286,8 @@ export default function ChatPage() {
                             <button
                               onClick={() => promptDeleteMessage(msg)}
                               className={`p-1 transition-colors rounded-sm ${isWithin15Mins
-                                  ? "text-muted-foreground hover:text-destructive"
-                                  : "text-muted-foreground/40 hover:text-muted-foreground/60"
+                                ? "text-muted-foreground hover:text-destructive"
+                                : "text-muted-foreground/40 hover:text-muted-foreground/60"
                                 }`}
                               title={t("deleteMessage")}
                             >
@@ -1343,14 +1343,14 @@ export default function ChatPage() {
                             return (
                               <div
                                 className={`flex items-center gap-3 p-3 rounded-2xl border shadow-2xs transition-all ${isMissedOrRejected
-                                    ? "bg-destructive/10 border-destructive/20 text-foreground"
-                                    : "bg-muted/90 border-border text-foreground"
+                                  ? "bg-destructive/10 border-destructive/20 text-foreground"
+                                  : "bg-muted/90 border-border text-foreground"
                                   }`}
                               >
                                 <div
                                   className={`p-2.5 rounded-full shrink-0 ${isMissedOrRejected
-                                      ? "bg-destructive/20 text-destructive"
-                                      : "bg-emerald-500/20 text-emerald-500"
+                                    ? "bg-destructive/20 text-destructive"
+                                    : "bg-emerald-500/20 text-emerald-500"
                                     }`}
                                 >
                                   <IconComponent className="h-4 w-4 rtl:-scale-x-100" />
@@ -1418,8 +1418,8 @@ export default function ChatPage() {
                         ) : isDeleted ? (
                           <div
                             className={`px-3.5 py-2 rounded-2xl text-xs italic select-none border shadow-2xs flex items-center gap-1.5 ${isMe
-                                ? "bg-muted/70 text-muted-foreground border-border/40 ltr:rounded-tr-sm rtl:rounded-tl-sm"
-                                : "bg-muted/70 text-muted-foreground border-border/40 ltr:rounded-tl-sm rtl:rounded-tr-sm"
+                              ? "bg-muted/70 text-muted-foreground border-border/40 ltr:rounded-tr-sm rtl:rounded-tl-sm"
+                              : "bg-muted/70 text-muted-foreground border-border/40 ltr:rounded-tl-sm rtl:rounded-tr-sm"
                               }`}
                           >
                             <Trash2 className="h-3.5 w-3.5 opacity-60 shrink-0" />
@@ -1428,8 +1428,8 @@ export default function ChatPage() {
                         ) : (
                           <div
                             className={`px-4 py-2 rounded-2xl wrap-break-word ${isMe
-                                ? "bg-primary text-primary-foreground ltr:rounded-tr-sm rtl:rounded-tl-sm"
-                                : "bg-muted ltr:rounded-tl-sm rtl:rounded-tr-sm"
+                              ? "bg-primary text-primary-foreground ltr:rounded-tr-sm rtl:rounded-tl-sm"
+                              : "bg-muted ltr:rounded-tl-sm rtl:rounded-tr-sm"
                               }`}
                           >
                             {msg.content}
