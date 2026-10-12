@@ -14,37 +14,23 @@ export interface CallUser {
   conversationId?: string;
 }
 
-function getIceServers(): RTCConfiguration {
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  // High-availability public Google STUN servers
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
+  { urls: "stun:stun.services.mozilla.com" },
+];
+
+function getFallbackIceServers(): RTCConfiguration {
   const customTurnUrl = process.env.NEXT_PUBLIC_TURN_URL;
   const customTurnUser = process.env.NEXT_PUBLIC_TURN_USERNAME;
   const customTurnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
 
-  const servers: RTCIceServer[] = [
-    // High-availability public Google STUN servers
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
-    { urls: "stun:stun3.l.google.com:19302" },
-    { urls: "stun:stun4.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
-    { urls: "stun:stun.services.mozilla.com" },
-    // Free Public TURN relay servers (OpenRelay by Metered)
-    // REQUIRED for mobile cellular (4G/5G) <-> home Wi-Fi/Laptop NAT traversal across firewalls
-    {
-      urls: [
-        "turn:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-      ],
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turns:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-  ];
+  const servers: RTCIceServer[] = [...DEFAULT_ICE_SERVERS];
 
   if (customTurnUrl) {
     servers.unshift({
@@ -109,6 +95,30 @@ export function useAudioCall(
     showToastRef.current = showToast;
   }, [showToast]);
 
+  const disconnectGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cachedIceConfigRef = useRef<RTCConfiguration>(getFallbackIceServers());
+
+  // Fetch latest dynamic ICE/TURN servers from server API on mount
+  useEffect(() => {
+    let isMounted = true;
+    fetch("/api/webrtc/ice-servers")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (isMounted && data?.iceServers) {
+          cachedIceConfigRef.current = {
+            iceServers: data.iceServers,
+            iceCandidatePoolSize: data.iceCandidatePoolSize || 10,
+          };
+        }
+      })
+      .catch((err) => {
+        console.warn("[useAudioCall] Could not load dynamic ICE servers, using fallback:", err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Synchronize state refs for callbacks
   useEffect(() => {
     callStateRef.current = callState;
@@ -128,7 +138,12 @@ export function useAudioCall(
     const stream = remoteStreamRef.current;
     if (!audioEl || !stream) return;
 
-    audioEl.srcObject = stream;
+    if (audioEl.srcObject !== stream) {
+      if (audioEl.src && audioEl.src.startsWith("data:")) {
+        audioEl.removeAttribute("src");
+      }
+      audioEl.srcObject = stream;
+    }
     audioEl.muted = false;
     audioEl.volume = 1.0;
 
@@ -152,6 +167,10 @@ export function useAudioCall(
     if (audioEl) {
       audioEl.muted = false;
       audioEl.volume = 1.0;
+      // Play a silent 1-sample WAV to authorize the audio element for playback on iOS Safari / Chrome
+      if (!audioEl.srcObject && !audioEl.src) {
+        audioEl.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+      }
       audioEl.play().then(() => {
         setIsAudioBlocked(false);
       }).catch(() => {
@@ -179,6 +198,11 @@ export function useAudioCall(
   // Clean up WebRTC peer connection, local streams, room channel, timers & ringtones
   const cleanupCall = useCallback(() => {
     ringtoneManager.stopRingtone();
+
+    if (disconnectGraceTimerRef.current) {
+      clearTimeout(disconnectGraceTimerRef.current);
+      disconnectGraceTimerRef.current = null;
+    }
 
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
@@ -564,7 +588,7 @@ export function useAudioCall(
       pcRef.current.close();
     }
 
-    const pc = new RTCPeerConnection(getIceServers());
+    const pc = new RTCPeerConnection(cachedIceConfigRef.current);
     pcRef.current = pc;
 
     pc.onicecandidate = (event) => {
@@ -575,6 +599,12 @@ export function useAudioCall(
 
     pc.oniceconnectionstatechange = () => {
       console.log("[WebRTC] ICE Connection State:", pc.iceConnectionState);
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        if (disconnectGraceTimerRef.current) {
+          clearTimeout(disconnectGraceTimerRef.current);
+          disconnectGraceTimerRef.current = null;
+        }
+      }
     };
 
     pc.ontrack = (event) => {
@@ -593,21 +623,66 @@ export function useAudioCall(
         });
         remoteStreamRef.current = stream;
         setRemoteStream(stream);
+
+        // Clear disconnect grace timer if media packets are arriving
+        if (disconnectGraceTimerRef.current) {
+          clearTimeout(disconnectGraceTimerRef.current);
+          disconnectGraceTimerRef.current = null;
+        }
+
         playRemoteAudio();
       }
     };
 
     pc.onconnectionstatechange = () => {
       console.log("WebRTC connection state:", pc.connectionState);
-      if (
-        pc.connectionState === "disconnected" ||
-        pc.connectionState === "failed" ||
-        pc.connectionState === "closed"
-      ) {
+      if (pc.connectionState === "connected") {
+        if (disconnectGraceTimerRef.current) {
+          clearTimeout(disconnectGraceTimerRef.current);
+          disconnectGraceTimerRef.current = null;
+        }
+      } else if (pc.connectionState === "disconnected") {
+        // Transient disconnect on mobile cellular or NAT renegotiation
+        // Allow a 10s grace period for ICE to recover before ending the call
+        if (!disconnectGraceTimerRef.current) {
+          disconnectGraceTimerRef.current = setTimeout(() => {
+            if (pcRef.current?.connectionState === "disconnected") {
+              console.warn("[WebRTC] Disconnected timeout reached. Ending call.");
+              if (isCallerRef.current && callStateRef.current === "connected") {
+                logCallMessage("answered", durationSecondsRef.current);
+              }
+              resetToIdle("ended", 1500);
+            }
+          }, 10000);
+        }
+      } else if (pc.connectionState === "failed") {
+        // Attempt ICE restart once if supported
+        if (typeof pc.restartIce === "function") {
+          try {
+            pc.restartIce();
+          } catch {}
+        }
+        if (!disconnectGraceTimerRef.current) {
+          disconnectGraceTimerRef.current = setTimeout(() => {
+            if (pcRef.current?.connectionState === "failed") {
+              console.warn("[WebRTC] Connection failed. Ending call.");
+              showToastRef.current?.("تعذر توصيل مسار الصوت بين الشبكتين", "error");
+              if (isCallerRef.current && callStateRef.current === "connected") {
+                logCallMessage("answered", durationSecondsRef.current);
+              }
+              resetToIdle("ended", 1500);
+            }
+          }, 6000);
+        }
+      } else if (pc.connectionState === "closed") {
+        if (disconnectGraceTimerRef.current) {
+          clearTimeout(disconnectGraceTimerRef.current);
+          disconnectGraceTimerRef.current = null;
+        }
         if (isCallerRef.current && callStateRef.current === "connected") {
           logCallMessage("answered", durationSecondsRef.current);
         }
-        resetToIdle("ended", 1500);
+        resetToIdle("ended", 1000);
       }
     };
 

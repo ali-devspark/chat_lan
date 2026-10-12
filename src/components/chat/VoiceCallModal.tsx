@@ -24,7 +24,7 @@ interface VoiceCallModalProps {
   onReject: () => void;
   onEndCall: () => void;
   onToggleMute: () => void;
-  remoteAudioRef: React.RefObject<HTMLAudioElement | null>;
+  remoteAudioRef?: React.RefObject<HTMLAudioElement | null>;
   remoteStream?: MediaStream | null;
   isAudioBlocked?: boolean;
   onUnblockAudio?: () => void;
@@ -39,7 +39,6 @@ export function VoiceCallModal({
   onReject,
   onEndCall,
   onToggleMute,
-  remoteAudioRef,
   remoteStream = null,
   isAudioBlocked = false,
   onUnblockAudio,
@@ -75,14 +74,7 @@ export function VoiceCallModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
-      {/* Invisible but active Audio Element for WebRTC Remote Stream */}
-      <audio
-        ref={remoteAudioRef}
-        autoPlay
-        playsInline
-        aria-hidden="true"
-        className="sr-only"
-      />
+
 
       <div className="bg-card text-card-foreground border rounded-3xl max-w-sm w-full p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden space-y-5">
         {/* Subtle Background Glow */}

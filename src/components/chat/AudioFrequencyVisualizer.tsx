@@ -249,6 +249,12 @@ export function AudioFrequencyVisualizer({
             <Volume2 className="h-3.5 w-3.5 opacity-70" />
             <span>الصوت متصل ومستقر • صامت حالياً</span>
           </div>
+        ) : !stream ? (
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500/90 text-xs font-medium">
+            <span className="h-2 w-2 rounded-full bg-amber-500/60 animate-pulse" />
+            <Volume2 className="h-3.5 w-3.5 opacity-60" />
+            <span>جاري مزامنة مسار الصوت بين الشبكتين...</span>
+          </div>
         ) : (
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-muted/60 border border-border/40 text-muted-foreground text-xs font-medium">
             <span className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-pulse" />
