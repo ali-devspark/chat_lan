@@ -29,7 +29,6 @@ import {
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useParams } from "next/navigation";
-import { useRouter } from "@/i18n/routing";
 import { ActionConfirmModal } from "@/components/ui/action-confirm-modal";
 import { ToastNotification } from "@/components/ui/toast-notification";
 import { VoiceCallModal } from "@/components/chat/VoiceCallModal";
@@ -1106,18 +1105,23 @@ export default function ChatPage() {
         className="sr-only"
       />
 
-      {/* Voice Call Modal Overlay */}
+      {/* Voice & Video Call Modal Overlay */}
       <VoiceCallModal
         callState={audioCall.callState}
+        callType={audioCall.callType}
         otherUser={audioCall.otherUser}
         durationSeconds={audioCall.durationSeconds}
         isMuted={audioCall.isMuted}
+        isVideoOff={audioCall.isVideoOff}
         onAccept={audioCall.acceptCall}
         onReject={audioCall.rejectCall}
         onEndCall={audioCall.endCall}
         onToggleMute={audioCall.toggleMute}
+        onToggleVideo={audioCall.toggleVideo}
+        onSwitchCamera={audioCall.switchCamera}
         remoteAudioRef={audioCall.remoteAudioRef}
         remoteStream={audioCall.remoteStream}
+        localStream={audioCall.localStream}
         isAudioBlocked={audioCall.isAudioBlocked}
         onUnblockAudio={audioCall.playRemoteAudio}
       />
@@ -1216,7 +1220,28 @@ export default function ChatPage() {
                 >
                   <Phone className="h-5 w-5" />
                 </Button>
-                <Button variant="ghost" size="icon">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    if (activeConversation) {
+                      audioCall.startCall(
+                        {
+                          id: activeConversation.otherUser.id,
+                          name:
+                            activeConversation.otherUser.display_name ||
+                            activeConversation.otherUser.username,
+                          username: activeConversation.otherUser.username,
+                          avatarUrl: activeConversation.otherUser.avatar_url,
+                          conversationId: activeConversation.id,
+                        },
+                        "video"
+                      );
+                    }
+                  }}
+                  title={tCall("videoCall")}
+                  className="hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors"
+                >
                   <Video className="h-5 w-5" />
                 </Button>
                 <Button
@@ -1299,31 +1324,43 @@ export default function ChatPage() {
                         {/* Inline Editing Form, Call Log Bubble, or Normal Message Bubble */}
                         {isCallLog ? (
                           (() => {
-                            const parts = msg.content.replace("[call_log:", "").replace("]", "").split(":");
+                            const parts = msg.content
+                              .replace("[call_log:", "")
+                              .replace("]", "")
+                              .split(":");
                             const logType = parts[0];
                             const durationSec = parts[1] ? parseInt(parts[1], 10) : 0;
+                            const isVideoLog = parts.includes("video");
 
                             const formatSecs = (sec: number) => {
                               const m = Math.floor(sec / 60);
                               const s = sec % 60;
-                              return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+                              return `${m.toString().padStart(2, "0")}:${s
+                                .toString()
+                                .padStart(2, "0")}`;
                             };
 
-                            let IconComponent = PhoneOutgoing;
-                            let title = tCall("callLogOutgoing");
+                            let IconComponent = isVideoLog ? Video : PhoneOutgoing;
+                            let title = isVideoLog
+                              ? tCall("callLogOutgoingVideo")
+                              : tCall("callLogOutgoing");
                             const subtext = durationSec > 0 ? formatSecs(durationSec) : "";
                             let isMissedOrRejected = false;
 
                             if (isMe) {
                               // للمتصل: المكالمة دائماً صادرة
-                              IconComponent = PhoneOutgoing;
-                              title = tCall("callLogOutgoing");
+                              IconComponent = isVideoLog ? Video : PhoneOutgoing;
+                              title = isVideoLog
+                                ? tCall("callLogOutgoingVideo")
+                                : tCall("callLogOutgoing");
                               isMissedOrRejected = false;
                             } else {
                               // للطرف الآخر: تعتمد التسمية على نتيجة المكالمة
                               if (logType === "answered") {
-                                IconComponent = PhoneIncoming;
-                                title = tCall("callLogIncoming");
+                                IconComponent = isVideoLog ? Video : PhoneIncoming;
+                                title = isVideoLog
+                                  ? tCall("callLogIncomingVideo")
+                                  : tCall("callLogIncoming");
                                 isMissedOrRejected = false;
                               } else if (logType === "rejected") {
                                 IconComponent = PhoneOff;
@@ -1342,21 +1379,25 @@ export default function ChatPage() {
 
                             return (
                               <div
-                                className={`flex items-center gap-3 p-3 rounded-2xl border shadow-2xs transition-all ${isMissedOrRejected
-                                  ? "bg-destructive/10 border-destructive/20 text-foreground"
-                                  : "bg-muted/90 border-border text-foreground"
-                                  }`}
+                                className={`flex items-center gap-3 p-3 rounded-2xl border shadow-2xs transition-all ${
+                                  isMissedOrRejected
+                                    ? "bg-destructive/10 border-destructive/20 text-foreground"
+                                    : "bg-muted/90 border-border text-foreground"
+                                }`}
                               >
                                 <div
-                                  className={`p-2.5 rounded-full shrink-0 ${isMissedOrRejected
-                                    ? "bg-destructive/20 text-destructive"
-                                    : "bg-emerald-500/20 text-emerald-500"
-                                    }`}
+                                  className={`p-2.5 rounded-full shrink-0 ${
+                                    isMissedOrRejected
+                                      ? "bg-destructive/20 text-destructive"
+                                      : "bg-emerald-500/20 text-emerald-500"
+                                  }`}
                                 >
                                   <IconComponent className="h-4 w-4 rtl:-scale-x-100" />
                                 </div>
                                 <div className="flex-1 min-w-0 me-2">
-                                  <p className="text-xs font-bold truncate leading-snug">{title}</p>
+                                  <p className="text-xs font-bold truncate leading-snug">
+                                    {title}
+                                  </p>
                                   {subtext && (
                                     <p className="text-[11px] text-muted-foreground font-medium mt-0.5">
                                       {subtext}
@@ -1370,17 +1411,26 @@ export default function ChatPage() {
                                     size="sm"
                                     variant="outline"
                                     onClick={() => {
-                                      audioCall.startCall({
-                                        id: activeConversation.otherUser.id,
-                                        name: activeConversation.otherUser.display_name || activeConversation.otherUser.username,
-                                        username: activeConversation.otherUser.username,
-                                        avatarUrl: activeConversation.otherUser.avatar_url,
-                                        conversationId: activeConversation.id,
-                                      });
+                                      audioCall.startCall(
+                                        {
+                                          id: activeConversation.otherUser.id,
+                                          name:
+                                            activeConversation.otherUser.display_name ||
+                                            activeConversation.otherUser.username,
+                                          username: activeConversation.otherUser.username,
+                                          avatarUrl: activeConversation.otherUser.avatar_url,
+                                          conversationId: activeConversation.id,
+                                        },
+                                        isVideoLog ? "video" : "audio"
+                                      );
                                     }}
                                     className="h-7 text-[11px] px-2.5 gap-1 shrink-0 rounded-full border-primary/40 hover:bg-primary hover:text-primary-foreground transition-all shadow-2xs"
                                   >
-                                    <Phone className="h-3 w-3" />
+                                    {isVideoLog ? (
+                                      <Video className="h-3 w-3" />
+                                    ) : (
+                                      <Phone className="h-3 w-3" />
+                                    )}
                                     <span>{tCall("callBack")}</span>
                                   </Button>
                                 )}

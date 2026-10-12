@@ -5,7 +5,6 @@ export async function GET() {
   const customTurnUser = process.env.TURN_USERNAME || process.env.NEXT_PUBLIC_TURN_USERNAME;
   const customTurnCred = process.env.TURN_CREDENTIAL || process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
 
-  const meteredApiUrl = process.env.METERED_API_URL || process.env.NEXT_PUBLIC_METERED_API_URL;
   const meteredApiKey =
     process.env.METERED_SECRET_KEY ||
     process.env.METERED_API_KEY ||

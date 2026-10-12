@@ -6,6 +6,8 @@ import { ringtoneManager } from "@/lib/webrtc/ringtone";
 import { CallState } from "@/components/chat/VoiceCallModal";
 import type { User as SupabaseUser, RealtimeChannel } from "@supabase/supabase-js";
 
+export type CallType = "audio" | "video";
+
 export interface CallUser {
   id: string;
   name: string;
@@ -57,9 +59,12 @@ export function useAudioCall(
 ) {
   const supabase = useMemo(() => createClient(), []);
   const [callState, setCallState] = useState<CallState>("idle");
+  const [callType, setCallType] = useState<CallType>("audio");
   const [otherUser, setOtherUser] = useState<CallUser | null>(null);
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isAudioBlocked, setIsAudioBlocked] = useState(false);
@@ -68,6 +73,10 @@ export function useAudioCall(
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const callTypeRef = useRef<CallType>("audio");
+  const isVideoOffRef = useRef<boolean>(false);
+  const facingModeRef = useRef<"user" | "environment">("user");
 
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
   const isRoomSubscribedRef = useRef<boolean>(false);
@@ -123,6 +132,18 @@ export function useAudioCall(
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
+
+  useEffect(() => {
+    callTypeRef.current = callType;
+  }, [callType]);
+
+  useEffect(() => {
+    isVideoOffRef.current = isVideoOff;
+  }, [isVideoOff]);
+
+  useEffect(() => {
+    facingModeRef.current = facingMode;
+  }, [facingMode]);
 
   useEffect(() => {
     otherUserRef.current = otherUser;
@@ -258,6 +279,12 @@ export function useAudioCall(
 
     setDurationSeconds(0);
     setIsMuted(false);
+    setIsVideoOff(false);
+    isVideoOffRef.current = false;
+    setFacingMode("user");
+    facingModeRef.current = "user";
+    setCallType("audio");
+    callTypeRef.current = "audio";
   }, [supabase]);
 
   // Log Call Message into Supabase `messages` table - Guaranteed single execution per call
@@ -273,14 +300,15 @@ export function useAudioCall(
       hasLoggedCallRef.current = true;
 
       let content = "";
+      const isVid = callTypeRef.current === "video" ? ":video" : "";
       if (type === "answered") {
-        content = `[call_log:answered:${duration}]`;
+        content = `[call_log:answered:${duration}${isVid}]`;
       } else if (type === "rejected") {
-        content = `[call_log:rejected]`;
+        content = `[call_log:rejected${isVid}]`;
       } else if (type === "missed") {
-        content = `[call_log:missed]`;
+        content = `[call_log:missed${isVid}]`;
       } else if (type === "busy") {
-        content = `[call_log:busy]`;
+        content = `[call_log:busy${isVid}]`;
       }
 
       if (!content) return;
@@ -512,37 +540,91 @@ export function useAudioCall(
     [currentUser?.id, supabase]
   );
 
-  // Start User Media (Microphone)
-  const getMicrophoneStream = useCallback(async (): Promise<MediaStream | null> => {
-    try {
-      if (
-        localStreamRef.current &&
-        localStreamRef.current.getTracks().some((t) => t.readyState === "live")
-      ) {
-        return localStreamRef.current;
+  // Start User Media (Microphone & Camera)
+  const getUserMediaStream = useCallback(
+    async (
+      requestedType?: CallType,
+      currentFacing?: "user" | "environment"
+    ): Promise<MediaStream | null> => {
+      const type = requestedType ?? callTypeRef.current;
+      const facing = currentFacing ?? facingModeRef.current;
+
+      try {
+        if (
+          localStreamRef.current &&
+          localStreamRef.current.getTracks().some((t) => t.readyState === "live")
+        ) {
+          const hasAudio = localStreamRef.current
+            .getAudioTracks()
+            .some((t) => t.readyState === "live");
+          const hasVideo = localStreamRef.current
+            .getVideoTracks()
+            .some((t) => t.readyState === "live");
+
+          if (hasAudio && (type !== "video" || hasVideo)) {
+            return localStreamRef.current;
+          }
+        }
+
+        // Release old tracks when changing call mode
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach((track) => track.stop());
+          localStreamRef.current = null;
+        }
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video:
+              type === "video"
+                ? {
+                    width: { ideal: 1280, max: 1920 },
+                    height: { ideal: 720, max: 1080 },
+                    facingMode: facing,
+                  }
+                : false,
+          });
+        } catch (mediaErr) {
+          if (type === "video") {
+            console.warn("[WebRTC] Video stream request failed, falling back to audio only:", mediaErr);
+            showToastRef.current?.(
+              "تعذر تشغيل الكاميرا، جاري المتابعة بالصوت فقط",
+              "info"
+            );
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+              video: false,
+            });
+          } else {
+            throw mediaErr;
+          }
+        }
+
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+        return stream;
+      } catch (err) {
+        console.error("Media stream access error:", err);
+        showToastRef.current?.(
+          type === "video"
+            ? "تعذر الوصول للميكروفون أو الكاميرا. يرجى التحقق من أذونات المتصفح."
+            : "تعذر الوصول للميكروفون. يرجى التحقق من أذونات المتصفح.",
+          "error"
+        );
+        return null;
       }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
-
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-      return stream;
-    } catch (err) {
-      console.error("Microphone access error:", err);
-      showToastRef.current?.(
-        "تعذر الوصول للميكروفون. يرجى التحقق من أذونات المتصفح.",
-        "error"
-      );
-      return null;
-    }
-  }, []);
+    },
+    []
+  );
 
   // Hang Up / Cancel Call
   const endCall = useCallback(async () => {
@@ -613,7 +695,12 @@ export function useAudioCall(
       if (event.streams && event.streams[0]) {
         stream = event.streams[0];
       } else if (event.track) {
-        stream = new MediaStream([event.track]);
+        if (remoteStreamRef.current) {
+          remoteStreamRef.current.addTrack(event.track);
+          stream = remoteStreamRef.current;
+        } else {
+          stream = new MediaStream([event.track]);
+        }
       }
 
       if (stream) {
@@ -622,7 +709,7 @@ export function useAudioCall(
           track.enabled = true;
         });
         remoteStreamRef.current = stream;
-        setRemoteStream(stream);
+        setRemoteStream(new MediaStream(stream.getTracks()));
 
         // Clear disconnect grace timer if media packets are arriving
         if (disconnectGraceTimerRef.current) {
@@ -720,7 +807,7 @@ export function useAudioCall(
             outgoingTimeoutRef.current = null;
           }
 
-          const stream = await getMicrophoneStream();
+          const stream = await getUserMediaStream(callTypeRef.current);
           if (!stream) {
             endCall();
             return;
@@ -730,8 +817,10 @@ export function useAudioCall(
           stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
           try {
+            const isVideo = callTypeRef.current === "video";
             const offer = await pc.createOffer({
               offerToReceiveAudio: true,
+              offerToReceiveVideo: isVideo,
             });
             await pc.setLocalDescription(offer);
             sendRoomSignal("call-offer", { offer });
@@ -748,7 +837,7 @@ export function useAudioCall(
           const { offer } = payload;
           const pc = createPeerConnection();
 
-          const stream = await getMicrophoneStream();
+          const stream = await getUserMediaStream(callTypeRef.current);
           if (stream) {
             stream.getTracks().forEach((track) => pc.addTrack(track, stream));
           }
@@ -868,12 +957,12 @@ export function useAudioCall(
           }
         });
     },
-    [currentUser?.id, supabase, createPeerConnection, getMicrophoneStream, sendRoomSignal, startTimer, handleCallBusy, handleCallHangup, handleCallRejected, endCall]
+    [currentUser?.id, supabase, createPeerConnection, getUserMediaStream, sendRoomSignal, startTimer, handleCallBusy, handleCallHangup, handleCallRejected, endCall]
   );
 
-  // Initiate an Outgoing Voice Call
+  // Initiate an Outgoing Voice/Video Call
   const startCall = useCallback(
-    async (targetUser: CallUser) => {
+    async (targetUser: CallUser, type: CallType = "audio") => {
       if (!currentUser?.id) return;
 
       cleanupCall();
@@ -884,6 +973,10 @@ export function useAudioCall(
       isCallerRef.current = true;
       conversationIdRef.current = targetUser.conversationId || null;
       durationSecondsRef.current = 0;
+      setCallType(type);
+      callTypeRef.current = type;
+      setIsVideoOff(false);
+      isVideoOffRef.current = false;
       setOtherUser(targetUser);
       setCallState("outgoing");
       ringtoneManager.startOutgoingRingtone();
@@ -894,8 +987,8 @@ export function useAudioCall(
       // Prime and unlock audio on user click for mobile browser autoplay authorization
       unlockAudio();
 
-      // Pre-warm microphone permission on user click gesture
-      getMicrophoneStream();
+      // Pre-warm microphone & camera permission on user click gesture
+      getUserMediaStream(type);
 
       // Open persistent outbound signaling channel for this call session
       const targetInboxTopic = `call-signal:${targetUser.id}`;
@@ -918,6 +1011,7 @@ export function useAudioCall(
 
       const invitePayload = {
         callId,
+        callType: type,
         callerUser: {
           id: currentUser.id,
           name:
@@ -980,10 +1074,10 @@ export function useAudioCall(
         }
       }, 45000);
     },
-    [currentUser, cleanupCall, joinCallRoom, getMicrophoneStream, supabase, handleCallBusy, handleCallRejected, handleCallHangup, endCall, unlockAudio]
+    [currentUser, cleanupCall, joinCallRoom, getUserMediaStream, supabase, handleCallBusy, handleCallRejected, handleCallHangup, endCall, unlockAudio]
   );
 
-  // Accept an Incoming Voice Call
+  // Accept an Incoming Voice/Video Call
   const acceptCall = useCallback(async () => {
     const caller = otherUserRef.current;
     if (!caller || !currentUser?.id) return;
@@ -993,7 +1087,7 @@ export function useAudioCall(
     // Prime and unlock audio on user click gesture (critical for iOS Safari and mobile Chrome)
     unlockAudio();
 
-    const stream = await getMicrophoneStream();
+    const stream = await getUserMediaStream(callTypeRef.current);
     if (!stream) {
       const roomTopic = getCallRoomTopic(currentUser.id, caller.id);
       sendRoomSignal("call-reject");
@@ -1007,7 +1101,7 @@ export function useAudioCall(
 
     // Signal accept to caller
     sendRoomSignal("call-accept");
-  }, [currentUser?.id, getMicrophoneStream, sendRoomSignal, sendDirectSignal, resetToIdle, startTimer, unlockAudio]);
+  }, [currentUser?.id, getUserMediaStream, sendRoomSignal, sendDirectSignal, resetToIdle, startTimer, unlockAudio]);
 
   // Reject an Incoming Voice Call
   const rejectCall = useCallback(async () => {
@@ -1037,6 +1131,58 @@ export function useAudioCall(
     }
   }, [isMuted]);
 
+  // Toggle Camera Video Track On/Off
+  const toggleVideo = useCallback(() => {
+    if (localStreamRef.current) {
+      const videoTracks = localStreamRef.current.getVideoTracks();
+      if (videoTracks.length === 0) return;
+      const nextVideoOff = !isVideoOff;
+      videoTracks.forEach((track) => {
+        track.enabled = !nextVideoOff;
+      });
+      setIsVideoOff(nextVideoOff);
+      isVideoOffRef.current = nextVideoOff;
+    }
+  }, [isVideoOff]);
+
+  // Switch Facing Camera (Front / Environment)
+  const switchCamera = useCallback(async () => {
+    if (callTypeRef.current !== "video") return;
+    const nextMode = facingModeRef.current === "user" ? "environment" : "user";
+    facingModeRef.current = nextMode;
+    setFacingMode(nextMode);
+
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          facingMode: nextMode,
+        },
+      });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+
+      if (pcRef.current) {
+        const senders = pcRef.current.getSenders();
+        const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+        if (videoSender) {
+          await videoSender.replaceTrack(newVideoTrack);
+        }
+      }
+
+      if (localStreamRef.current) {
+        const oldTracks = localStreamRef.current.getVideoTracks();
+        oldTracks.forEach((t) => t.stop());
+        oldTracks.forEach((t) => localStreamRef.current?.removeTrack(t));
+        localStreamRef.current.addTrack(newVideoTrack);
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+      }
+    } catch (err) {
+      console.error("Failed to switch camera:", err);
+    }
+  }, []);
+
   // Listen for Signaling Broadcast Messages on the personal inbox `call-signal:${currentUser.id}`
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -1055,8 +1201,9 @@ export function useAudioCall(
       mySignalChannel = channel;
 
       channel
-        .on("broadcast", { event: "call-invite" }, ({ payload }: { payload: { callerUser: CallUser; senderId: string; conversationId?: string; roomTopic?: string; callId: string } }) => {
-          const { callerUser, senderId, conversationId, roomTopic, callId } = payload;
+        .on("broadcast", { event: "call-invite" }, ({ payload }: { payload: { callerUser: CallUser; senderId: string; conversationId?: string; roomTopic?: string; callId: string; callType?: CallType } }) => {
+          const { callerUser, senderId, conversationId, roomTopic, callId, callType: incomingType } = payload;
+          const detectedType: CallType = incomingType === "video" ? "video" : "audio";
 
           // If this call was already ended or rejected, drop this delayed invite pulse immediately!
           if (callId && recentlyEndedCallIdsRef.current.has(callId)) {
@@ -1084,6 +1231,11 @@ export function useAudioCall(
           conversationIdRef.current =
             conversationId || callerUser?.conversationId || null;
           durationSecondsRef.current = 0;
+
+          setCallType(detectedType);
+          callTypeRef.current = detectedType;
+          setIsVideoOff(false);
+          isVideoOffRef.current = false;
 
           setOtherUser(callerUser);
           setCallState("incoming");
@@ -1157,9 +1309,12 @@ export function useAudioCall(
 
   return {
     callState,
+    callType,
     otherUser,
     durationSeconds,
     isMuted,
+    isVideoOff,
+    facingMode,
     remoteStream,
     localStream,
     isAudioBlocked,
@@ -1169,6 +1324,8 @@ export function useAudioCall(
     rejectCall,
     endCall,
     toggleMute,
+    toggleVideo,
+    switchCamera,
     remoteAudioRef,
   };
 }
