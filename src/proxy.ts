@@ -10,5 +10,5 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // Match only internationalized pathnames, ignore api, static, and auth callback
-  matcher: ["/", "/(ar|en)/:path*"],
+  matcher: ["/", "/(ar|en)/:path*", "/u/:path*"],
 };

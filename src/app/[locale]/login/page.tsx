@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useRouter } from "@/i18n/routing";
 import { AlertCircle, CheckCircle2, ShieldAlert, Loader2 } from "lucide-react";
 
@@ -16,8 +16,10 @@ export default function LoginPage() {
   const t = useTranslations("Auth");
   const supabase = useMemo(() => createClient(), []);
   const params = useParams();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const locale = (params?.locale as string) || "ar";
+  const nextParam = searchParams.get("next");
 
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -25,10 +27,12 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
+  const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid">("idle");
+  const [usernameFeedback, setUsernameFeedback] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // If user is already authenticated, immediately hide login/register and redirect to /chat
+  // If user is already authenticated, immediately hide login/register and redirect
   useEffect(() => {
     async function checkExistingAuth() {
       try {
@@ -37,7 +41,12 @@ export default function LoginPage() {
         } = await supabase.auth.getUser();
 
         if (user) {
-          router.replace("/chat");
+          const destination = nextParam ? decodeURIComponent(nextParam) : "/chat";
+          if (destination.startsWith(`/${locale}`)) {
+            window.location.href = destination;
+          } else {
+            router.replace(destination);
+          }
           return;
         }
       } catch (err) {
@@ -48,7 +57,76 @@ export default function LoginPage() {
     }
 
     checkExistingAuth();
-  }, [supabase, router]);
+  }, [supabase, router, nextParam, locale]);
+
+  // Real-time username format validation and uniqueness check
+  useEffect(() => {
+    const trimmed = username.trim();
+    if (!trimmed) {
+      setUsernameStatus("idle");
+      setUsernameFeedback("");
+      return;
+    }
+
+    // 1. Check for spaces
+    if (/\s/.test(trimmed)) {
+      setUsernameStatus("invalid");
+      setUsernameFeedback(t("usernameInvalidChars"));
+      return;
+    }
+
+    // 2. Check length (min 3, max 30)
+    if (trimmed.length < 3) {
+      setUsernameStatus("invalid");
+      setUsernameFeedback(t("usernameTooShort"));
+      return;
+    }
+
+    if (trimmed.length > 30) {
+      setUsernameStatus("invalid");
+      setUsernameFeedback(t("usernameTooLong"));
+      return;
+    }
+
+    // 3. Check English letters, numbers, and _ or - only
+    const validFormatRegex = /^[a-zA-Z0-9_-]+$/;
+    if (!validFormatRegex.test(trimmed)) {
+      setUsernameStatus("invalid");
+      setUsernameFeedback(t("usernameInvalidChars"));
+      return;
+    }
+
+    // 4. Debounced Supabase uniqueness check
+    setUsernameStatus("checking");
+    setUsernameFeedback(t("usernameChecking"));
+
+    const checkTimer = setTimeout(async () => {
+      try {
+        const clean = trimmed.toLowerCase();
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id")
+          .ilike("username", clean)
+          .maybeSingle();
+
+        if (error && error.code !== "PGRST116") {
+          console.warn("Username check notice:", error);
+        }
+
+        if (data) {
+          setUsernameStatus("taken");
+          setUsernameFeedback(t("usernameTaken"));
+        } else {
+          setUsernameStatus("available");
+          setUsernameFeedback(t("usernameAvailable"));
+        }
+      } catch (err) {
+        console.warn("Username uniqueness check caught:", err);
+      }
+    }, 350);
+
+    return () => clearTimeout(checkTimer);
+  }, [username, supabase, t]);
 
   const translateError = (msg: string) => {
     if (!msg) return t("errorAuth");
@@ -62,6 +140,8 @@ export default function LoginPage() {
       return "تم تجاوز الحد المسموح للمحاولات، يرجى الانتظار قليلاً.";
     if (msg.includes("Email not confirmed"))
       return "يرجى تأكيد بريدك الإلكتروني من خلال الرابط المرسل إليك.";
+    if (msg.includes("profiles_username_key") || msg.includes("duplicate key"))
+      return t("usernameTaken");
     return `${t("errorAuth")}: ${msg}`;
   };
 
@@ -71,7 +151,8 @@ export default function LoginPage() {
     setIsGoogleLoading(true);
 
     try {
-      const redirectUrl = `${window.location.origin}/auth/callback?next=/${locale}/chat`;
+      const redirectTarget = nextParam ? decodeURIComponent(nextParam) : `/${locale}/chat`;
+      const redirectUrl = `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTarget)}`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -121,18 +202,70 @@ export default function LoginPage() {
 
     if (type === "login") {
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password,
       });
       error = signInError;
     } else {
-      const cleanUsername = username.trim() || email.split("@")[0];
+      const cleanUsername = username.trim().toLowerCase();
+      
+      // Strict client-side validation
+      if (!cleanUsername) {
+        setErrorMessage(t("usernameRequired"));
+        setIsLoading(false);
+        return;
+      }
+
+      if (/\s/.test(cleanUsername) || !/^[a-zA-Z0-9_-]+$/.test(cleanUsername)) {
+        setErrorMessage(t("usernameInvalidChars"));
+        setIsLoading(false);
+        return;
+      }
+
+      if (cleanUsername.length < 3) {
+        setErrorMessage(t("usernameTooShort"));
+        setIsLoading(false);
+        return;
+      }
+
+      if (cleanUsername.length > 30) {
+        setErrorMessage(t("usernameTooLong"));
+        setIsLoading(false);
+        return;
+      }
+
+      if (usernameStatus === "taken") {
+        setErrorMessage(t("usernameTaken"));
+        setIsLoading(false);
+        return;
+      }
+
+      // Final live check against Supabase
+      try {
+        const { data: existingUser } = await supabase
+          .from("profiles")
+          .select("id")
+          .ilike("username", cleanUsername)
+          .maybeSingle();
+
+        if (existingUser) {
+          setUsernameStatus("taken");
+          setUsernameFeedback(t("usernameTaken"));
+          setErrorMessage(t("usernameTaken"));
+          setIsLoading(false);
+          return;
+        }
+      } catch (checkErr) {
+        console.warn("Pre-register check notice:", checkErr);
+      }
+
       const { error: signUpError } = await supabase.auth.signUp({
-        email,
+        email: email.trim(),
         password,
         options: {
           data: {
             username: cleanUsername,
+            display_name: cleanUsername,
           },
         },
       });
@@ -148,9 +281,10 @@ export default function LoginPage() {
           ? "تم تسجيل الدخول بنجاح! جاري التوجيه..."
           : "تم إنشاء الحساب بنجاح! جاري التوجيه..."
       );
+      const targetDestination = nextParam ? decodeURIComponent(nextParam) : `/${locale}/chat`;
       setTimeout(() => {
-        window.location.href = `/${locale}/chat`;
-      }, 800);
+        window.location.href = targetDestination;
+      }, 700);
     }
   };
 
@@ -317,17 +451,61 @@ export default function LoginPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="username-register">{t("username")}</Label>
-                  <Input
-                    id="username-register"
-                    type="text"
-                    value={username}
-                    onChange={(e) => {
-                      setUsername(e.target.value);
-                      setErrorMessage(null);
-                    }}
-                    placeholder="user123"
-                  />
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="username-register">{t("username")}</Label>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      (a-z, 0-9, _, -)
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      id="username-register"
+                      type="text"
+                      value={username}
+                      onChange={(e) => {
+                        setUsername(e.target.value);
+                        setErrorMessage(null);
+                      }}
+                      placeholder="user_123"
+                      className={`pe-10 font-mono text-sm ${
+                        usernameStatus === "available"
+                          ? "border-emerald-500/60 focus-visible:ring-emerald-500/30"
+                          : usernameStatus === "taken" || usernameStatus === "invalid"
+                          ? "border-destructive/60 focus-visible:ring-destructive/30"
+                          : ""
+                      }`}
+                      dir="ltr"
+                    />
+                    <div className="absolute inset-y-0 inset-e-3 flex items-center pointer-events-none">
+                      {usernameStatus === "checking" && (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      {usernameStatus === "available" && (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 animate-in zoom-in-75 duration-150" />
+                      )}
+                      {(usernameStatus === "taken" || usernameStatus === "invalid") && (
+                        <AlertCircle className="h-4 w-4 text-destructive animate-in zoom-in-75 duration-150" />
+                      )}
+                    </div>
+                  </div>
+                  {/* Status Helper Message */}
+                  {usernameFeedback ? (
+                    <p
+                      className={`text-xs flex items-center gap-1.5 transition-all animate-in fade-in duration-150 ${
+                        usernameStatus === "available"
+                          ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                          : usernameStatus === "checking"
+                          ? "text-muted-foreground"
+                          : "text-destructive font-medium"
+                      }`}
+                    >
+                      <span>{usernameFeedback}</span>
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("usernameFormatHint")}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="email-register">{t("email")}</Label>
@@ -340,6 +518,7 @@ export default function LoginPage() {
                       setErrorMessage(null);
                     }}
                     placeholder="m@example.com"
+                    dir="ltr"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -355,14 +534,21 @@ export default function LoginPage() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleAuth("register");
                     }}
+                    dir="ltr"
                   />
                 </div>
               </CardContent>
               <CardFooter>
                 <Button
-                  className="w-full font-semibold py-5 rounded-xl shadow-md"
+                  className="w-full font-semibold py-5 rounded-xl shadow-md cursor-pointer"
                   onClick={() => handleAuth("register")}
-                  disabled={isLoading || isGoogleLoading}
+                  disabled={
+                    isLoading ||
+                    isGoogleLoading ||
+                    usernameStatus === "checking" ||
+                    usernameStatus === "taken" ||
+                    usernameStatus === "invalid"
+                  }
                 >
                   {isLoading ? "جاري إنشاء الحساب..." : t("submitRegister")}
                 </Button>

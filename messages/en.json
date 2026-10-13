@@ -19,7 +19,8 @@
     "logout": "Logout",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "accountSettings": "Account Settings"
+    "accountSettings": "Account Settings",
+    "personalProfile": "Profile"
   },
   "Auth": {
     "login": "Sign In",
@@ -32,7 +33,15 @@
     "errorAuth": "Authentication failed",
     "googleSignIn": "Continue with Google",
     "orDivider": "OR",
-    "checkingSession": "Checking session..."
+    "checkingSession": "Checking session...",
+    "usernameFormatHint": "English letters, numbers, (_ or -) only, no spaces (3-30 chars)",
+    "usernameChecking": "Checking username availability...",
+    "usernameAvailable": "Username is available!",
+    "usernameTaken": "This username is already taken, please choose another.",
+    "usernameInvalidChars": "Username must contain only English letters, numbers, and (_ or -) with no spaces.",
+    "usernameTooShort": "Username must be at least 3 characters.",
+    "usernameTooLong": "Username cannot exceed 30 characters.",
+    "usernameRequired": "Please enter a valid unique username."
   },
   "Chat": {
     "conversations": "Conversations",
@@ -72,7 +81,37 @@
     "toggleSidebar": "Toggle Sidebar",
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
-    "backToChats": "Back to Chats"
+    "backToChats": "Back to Chats",
+    "userNotFound": "No user found with username: @{username}",
+    "cannotChatWithSelf": "This is your personal profile link! You cannot chat with yourself.",
+    "loadingDirectChat": "Opening direct chat..."
+  },
+  "Profile": {
+    "title": "Profile Details",
+    "subtitle": "Your account information and direct chat links",
+    "personalChatLink": "Direct Chat Link",
+    "personalChatLinkDesc": "Anyone can open this link to start a direct chat with you on ChatLan.",
+    "shortLink": "Short Link (Fast)",
+    "shortLinkDesc": "A short t.me-style link, easy to copy and share in bios and platforms.",
+    "copyLink": "Copy",
+    "linkCopied": "Copied successfully!",
+    "shareLink": "Share",
+    "shareTitle": "Chat with me on ChatLan",
+    "shareText": "Connect with me directly using this link on ChatLan:",
+    "editProfile": "Edit Profile",
+    "openChat": "Open Link",
+    "close": "Close",
+    "username": "Unique Username",
+    "email": "Email Address",
+    "displayName": "Display Name",
+    "sendMessage": "Message",
+    "voiceCall": "Voice Call",
+    "videoCall": "Video Call",
+    "userCardTitle": "User Card",
+    "userStatusAvailable": "Available on ChatLan",
+    "userStatusOnline": "Online Now",
+    "userStatusOffline": "Offline",
+    "addedToChats": "Chat opened and added to your conversations"
   },
   "Account": {
     "settingsTitle": "Account Settings",

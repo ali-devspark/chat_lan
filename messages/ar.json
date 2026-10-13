@@ -19,7 +19,8 @@
     "logout": "تسجيل الخروج",
     "themeLight": "فاتح",
     "themeDark": "داكن",
-    "accountSettings": "إعدادات الحساب"
+    "accountSettings": "إعدادات الحساب",
+    "personalProfile": "الملف الشخصي"
   },
   "Auth": {
     "login": "تسجيل الدخول",
@@ -32,7 +33,15 @@
     "errorAuth": "حدث خطأ في المصادقة",
     "googleSignIn": "المتابعة باستخدام Google",
     "orDivider": "أو",
-    "checkingSession": "جاري التحقق من الحساب..."
+    "checkingSession": "جاري التحقق من الحساب...",
+    "usernameFormatHint": "أحرف إنجليزية، أرقام، (_ أو -) فقط، بدون مسافات (3-30 حرفاً)",
+    "usernameChecking": "جاري التحقق من توفر الاسم...",
+    "usernameAvailable": "اسم المستخدم متاح للاستخدام!",
+    "usernameTaken": "اسم المستخدم هذا مستخدم بالفعل، يرجى اختيار اسم آخر.",
+    "usernameInvalidChars": "يجب أن يتكون اسم المستخدم من أحرف إنجليزية وأرقام و (_ أو -) فقط وبدون مسافات.",
+    "usernameTooShort": "اسم المستخدم يجب ألا يقل عن 3 أحرف.",
+    "usernameTooLong": "اسم المستخدم يجب ألا يزيد عن 30 حرفاً.",
+    "usernameRequired": "يرجى إدخال اسم مستخدم مميز صالح."
   },
   "Chat": {
     "conversations": "المحادثات",
@@ -72,7 +81,37 @@
     "toggleSidebar": "تبديل القائمة الجانبية",
     "collapseSidebar": "تصغير القائمة الجانبية",
     "expandSidebar": "تكبير القائمة الجانبية",
-    "backToChats": "رجوع للمحادثات"
+    "backToChats": "رجوع للمحادثات",
+    "userNotFound": "لم يتم العثور على مستخدم بهذا الاسم المميز",
+    "cannotChatWithSelf": "هذا رابط حسابك الشخصي! لا يمكنك بدء محادثة مع نفسك.",
+    "loadingDirectChat": "جاري فتح المحادثة المباشرة..."
+  },
+  "Profile": {
+    "title": "الملف الشخصي",
+    "subtitle": "معلومات حسابك ورابط المحادثة المباشر الخاص بك",
+    "personalChatLink": "رابط المحادثة المباشر",
+    "personalChatLinkDesc": "يمكن لأي شخص فتح هذا الرابط لبدء محادثة مباشرة معك فوراً على ChatLan.",
+    "shortLink": "الرابط المختصر (السريع)",
+    "shortLinkDesc": "رابط قصير وفوري مثل t.me يسهل نسخه ومشاركته في البايو والمنصات.",
+    "copyLink": "نسخ",
+    "linkCopied": "تم النسخ بنجاح!",
+    "shareLink": "مشاركة",
+    "shareTitle": "تواصل معي على ChatLan",
+    "shareText": "تواصل معي مباشرة عبر هذا الرابط على منصة ChatLan:",
+    "editProfile": "تعديل الملف الشخصي",
+    "openChat": "فتح الرابط",
+    "close": "إغلاق",
+    "username": "اسم المستخدم المميز",
+    "email": "البريد الإلكتروني",
+    "displayName": "اسم العرض",
+    "sendMessage": "مراسلة",
+    "voiceCall": "مكالمة صوتية",
+    "videoCall": "مكالمة فيديو",
+    "userCardTitle": "بطاقة المستخدم",
+    "userStatusAvailable": "متاح للتواصل على ChatLan",
+    "userStatusOnline": "متصل الآن",
+    "userStatusOffline": "غير متصل حالياً",
+    "addedToChats": "تم فتح المحادثة وإضافتها لقائمتك"
   },
   "Account": {
     "settingsTitle": "إعدادات الحساب",

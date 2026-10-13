@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { useTranslations } from "next-intl";
-import { X, User, Settings, Loader2, Check, Shield, Mail, AtSign, Image as ImageIcon } from "lucide-react";
+import { useParams } from "next/navigation";
+import { X, User, Settings, Loader2, Check, Shield, Mail, AtSign, Image as ImageIcon, Copy, Link2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -27,11 +28,14 @@ export function AccountSettingsModal({
 }: AccountSettingsModalProps) {
   const t = useTranslations("Account");
   const supabase = useMemo(() => createClient(), []);
+  const params = useParams();
+  const locale = (params?.locale as string) || "ar";
   const [activeTab, setActiveTab] = useState("profile");
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
@@ -318,6 +322,54 @@ export function AccountSettingsModal({
                       />
                       <p className="text-[11px] text-muted-foreground">{t("usernameDesc")}</p>
                     </div>
+
+                    {/* Personal Direct Link */}
+                    {username && (
+                      <div className="space-y-1.5 p-3 rounded-xl bg-primary/5 border border-primary/20">
+                        <Label className="text-xs font-semibold flex items-center justify-between">
+                          <span className="flex items-center gap-1.5 text-primary">
+                            <Link2 className="h-3.5 w-3.5" />
+                            <span>رابط المحادثة السريع (Short Link)</span>
+                          </span>
+                        </Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="text"
+                            readOnly
+                            value={`${typeof window !== "undefined" ? window.location.origin : "https://chat-lan.netlify.app"}/u/${username}`}
+                            className="rounded-xl text-xs bg-background font-mono selection:bg-primary/20 flex-1 min-w-0"
+                            dir="ltr"
+                            onClick={(e) => (e.target as HTMLInputElement).select()}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={copiedLink ? "default" : "secondary"}
+                            onClick={async () => {
+                              const origin = typeof window !== "undefined" ? window.location.origin : "https://chat-lan.netlify.app";
+                              await navigator.clipboard.writeText(`${origin}/u/${username}`);
+                              setCopiedLink(true);
+                              setTimeout(() => setCopiedLink(false), 2500);
+                            }}
+                            className={`h-9 px-3 text-xs font-medium rounded-xl shrink-0 cursor-pointer transition-all ${
+                              copiedLink ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""
+                            }`}
+                          >
+                            {copiedLink ? (
+                              <>
+                                <Check className="h-3.5 w-3.5 me-1 text-white" />
+                                <span>تم النسخ</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3.5 w-3.5 me-1" />
+                                <span>نسخ</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold flex items-center gap-1.5">

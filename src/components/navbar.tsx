@@ -10,13 +10,14 @@ import {
   DropdownMenuSeparator,
 } from "./ui/dropdown-menu";
 import { buttonVariants } from "./ui/button";
-import { Moon, Sun, Globe, LogOut, User as UserIcon, ChevronDown } from "lucide-react";
+import { Moon, Sun, Globe, LogOut, User as UserIcon, ChevronDown, UserCheck } from "lucide-react";
 import { usePathname, useRouter, Link } from "@/i18n/routing";
 import { createClient } from "@/lib/supabase/client";
 import { useEffect, useState, useMemo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { useParams } from "next/navigation";
 import { AccountSettingsModal } from "./account-settings-modal";
+import { UserProfileModal } from "./user-profile-modal";
 import { PwaInstaller } from "./pwa-installer";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
@@ -36,6 +37,7 @@ export function Navbar() {
     username: string;
   } | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   useEffect(() => {
     // Get initial session
@@ -174,6 +176,14 @@ export function Navbar() {
                     <DropdownMenuSeparator />
 
                     <DropdownMenuItem
+                      onClick={() => setIsProfileModalOpen(true)}
+                      className="cursor-pointer gap-2 py-2"
+                    >
+                      <UserCheck className="h-4 w-4 text-emerald-500" />
+                      <span className="font-medium text-xs">{t("personalProfile")}</span>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem
                       onClick={() => setIsSettingsModalOpen(true)}
                       className="cursor-pointer gap-2 py-2"
                     >
@@ -202,6 +212,20 @@ export function Navbar() {
           </div>
         </div>
       </header>
+
+      {/* User Personal Profile & Direct Link Modal */}
+      {user && (
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          user={user}
+          userProfile={userProfile}
+          onOpenSettings={() => {
+            setIsProfileModalOpen(false);
+            setIsSettingsModalOpen(true);
+          }}
+        />
+      )}
 
       {/* Account Settings Modal */}
       {user && (

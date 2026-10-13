@@ -16,6 +16,7 @@ import {
   Search,
   UserPlus,
   MessageSquarePlus,
+  MessageSquare,
   Loader2,
   X,
   Sparkles,
@@ -28,10 +29,11 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { ActionConfirmModal } from "@/components/ui/action-confirm-modal";
 import { ToastNotification } from "@/components/ui/toast-notification";
 import { VoiceCallModal } from "@/components/chat/VoiceCallModal";
+import { UserPublicCard } from "@/components/chat/UserPublicCard";
 import { useAudioCall } from "@/hooks/useAudioCall";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
@@ -77,14 +79,23 @@ export default function ChatPage() {
   const tCall = useTranslations("Call");
   const supabase = useMemo(() => createClient(), []);
   const params = useParams();
+  const searchParams = useSearchParams();
   const locale = (params?.locale as string) || "ar";
+  const rawRouteUsername = (params?.username as string) || "";
+  const actionParam = searchParams?.get("action");
 
   const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [message, setMessage] = useState("");
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
+  const [isConversationsLoaded, setIsConversationsLoaded] = useState(false);
   const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isUserCardModalOpen, setIsUserCardModalOpen] = useState(false);
+
+  const hasProcessedRouteUsername = useRef(false);
+  const hasTriggeredActionParam = useRef(false);
 
   // Realtime Presence for active online users
   const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
@@ -157,7 +168,8 @@ export default function ChatPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setLoadingUser(false);
-        window.location.href = `/${locale}/login`;
+        const currentPath = typeof window !== "undefined" ? window.location.pathname : `/${locale}/chat`;
+        window.location.href = `/${locale}/login?next=${encodeURIComponent(currentPath)}`;
         return;
       }
       setCurrentUser(user);
@@ -357,10 +369,59 @@ export default function ChatPage() {
 
       convList.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
       setConversations(convList);
+      setIsConversationsLoaded(true);
     } catch (err) {
       console.error("Error loading conversations:", err);
+      setIsConversationsLoaded(true);
     }
   }, [supabase]);
+
+  // Open and sync conversation URL
+  const openConversation = useCallback(
+    (conv: ConversationItem) => {
+      setSelectedChat(conv.id);
+      markConversationAsRead(conv.id);
+      const targetPath = `/${locale}/chat/${conv.otherUser.username}`;
+      if (typeof window !== "undefined" && window.location.pathname !== targetPath) {
+        window.history.pushState(null, "", targetPath);
+      }
+    },
+    [locale, markConversationAsRead]
+  );
+
+  // Close conversation and reset URL
+  const closeConversation = useCallback(() => {
+    setSelectedChat(null);
+    const targetPath = `/${locale}/chat`;
+    if (typeof window !== "undefined" && window.location.pathname !== targetPath) {
+      window.history.pushState(null, "", targetPath);
+    }
+  }, [locale]);
+
+  // Sync browser back/forward buttons (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const parts = window.location.pathname.split("/").filter(Boolean);
+      const chatIdx = parts.findIndex((p) => p === "chat");
+      if (chatIdx !== -1 && parts[chatIdx + 1]) {
+        const urlUsername = decodeURIComponent(parts[chatIdx + 1])
+          .replace(/^@/, "")
+          .toLowerCase();
+        const found = conversations.find(
+          (c) => c.otherUser.username.toLowerCase() === urlUsername
+        );
+        if (found) {
+          setSelectedChat(found.id);
+          markConversationAsRead(found.id);
+        }
+      } else {
+        setSelectedChat(null);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [conversations, markConversationAsRead]);
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -404,8 +465,7 @@ export default function ChatPage() {
     // Check if conversation already exists in local saved conversations state
     const existingInState = conversations.find((c) => c.otherUser.id === targetUser.id);
     if (existingInState) {
-      setSelectedChat(existingInState.id);
-      markConversationAsRead(existingInState.id);
+      openConversation(existingInState);
       setIsNewChatModalOpen(false);
       setSystemSearchQuery("");
       setSystemSearchResults([]);
@@ -423,6 +483,10 @@ export default function ChatPage() {
       if (!rpcError && convId) {
         await fetchConversations(currentUser.id);
         setSelectedChat(convId as string);
+        const targetPath = `/${locale}/chat/${targetUser.username}`;
+        if (typeof window !== "undefined" && window.location.pathname !== targetPath) {
+          window.history.pushState(null, "", targetPath);
+        }
         setIsNewChatModalOpen(false);
         setSystemSearchQuery("");
         setSystemSearchResults([]);
@@ -454,6 +518,10 @@ export default function ChatPage() {
       if (existingConvId) {
         await fetchConversations(currentUser.id);
         setSelectedChat(existingConvId);
+        const targetPath = `/${locale}/chat/${targetUser.username}`;
+        if (typeof window !== "undefined" && window.location.pathname !== targetPath) {
+          window.history.pushState(null, "", targetPath);
+        }
       } else {
         const { data: newConv, error: convErr } = await supabase
           .from("conversations")
@@ -475,6 +543,10 @@ export default function ChatPage() {
 
         await fetchConversations(currentUser.id);
         setSelectedChat(newConv.id);
+        const targetPath = `/${locale}/chat/${targetUser.username}`;
+        if (typeof window !== "undefined" && window.location.pathname !== targetPath) {
+          window.history.pushState(null, "", targetPath);
+        }
       }
 
       setIsNewChatModalOpen(false);
@@ -488,6 +560,74 @@ export default function ChatPage() {
       setCreatingChat(false);
     }
   };
+
+  // Automatically open conversation when visiting direct URL: /chat/[username] or /chat/@[username]
+  useEffect(() => {
+    if (!currentUser || !isConversationsLoaded || !rawRouteUsername || hasProcessedRouteUsername.current) return;
+
+    const cleanTarget = decodeURIComponent(rawRouteUsername)
+      .replace(/^@/, "")
+      .trim()
+      .toLowerCase();
+
+    if (!cleanTarget) return;
+
+    hasProcessedRouteUsername.current = true;
+
+    const myUsername =
+      currentUser.user_metadata?.username?.toLowerCase() ||
+      currentUser.email?.split("@")[0]?.toLowerCase() ||
+      "";
+
+    if (cleanTarget === myUsername) {
+      showToast(t("cannotChatWithSelf"), "info");
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", `/${locale}/chat`);
+      }
+      return;
+    }
+
+    const existingConv = conversations.find(
+      (c) => c.otherUser.username.toLowerCase() === cleanTarget
+    );
+
+    if (existingConv) {
+      setSelectedChat(existingConv.id);
+      markConversationAsRead(existingConv.id);
+      return;
+    }
+
+    // Lookup user in Supabase profiles
+    (async () => {
+      try {
+        const { data: targetProfile, error } = await supabase
+          .from("profiles")
+          .select("id, username, display_name, avatar_url")
+          .ilike("username", cleanTarget)
+          .maybeSingle();
+
+        if (error || !targetProfile) {
+          showToast(t("userNotFound"), "error");
+          if (typeof window !== "undefined") {
+            window.history.replaceState(null, "", `/${locale}/chat`);
+          }
+          return;
+        }
+
+        if (targetProfile.id === currentUser.id) {
+          showToast(t("cannotChatWithSelf"), "info");
+          if (typeof window !== "undefined") {
+            window.history.replaceState(null, "", `/${locale}/chat`);
+          }
+          return;
+        }
+
+        await handleDirectStartChat(targetProfile as Profile);
+      } catch (err) {
+        console.error("Error opening route chat:", err);
+      }
+    })();
+  }, [currentUser, isConversationsLoaded, rawRouteUsername, conversations, locale, supabase, t, showToast, markConversationAsRead]);
 
   // Trigger confirmation modal for deleting a conversation
   const promptDeleteConversation = (chat: ConversationItem, e?: React.MouseEvent) => {
@@ -522,7 +662,7 @@ export default function ChatPage() {
 
       setConversations((prev) => prev.filter((c) => c.id !== chat.id));
       if (selectedChat === chat.id) {
-        setSelectedChat(null);
+        closeConversation();
         setMessages([]);
       }
       showToast(t("msgDeleteSuccess"), "success");
@@ -680,23 +820,43 @@ export default function ChatPage() {
   useEffect(() => {
     if (!selectedChat) {
       setMessages([]);
+      setIsLoadingMessages(false);
       return;
     }
 
-    async function fetchMessages() {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", selectedChat)
-        .order("created_at", { ascending: true });
+    let isMounted = true;
+    setIsLoadingMessages(true);
 
-      if (!error && data) {
-        setMessages(data as MessageItem[]);
+    async function fetchMessages() {
+      try {
+        const { data, error } = await supabase
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", selectedChat)
+          .order("created_at", { ascending: true });
+
+        if (isMounted) {
+          if (!error && data) {
+            setMessages(data as MessageItem[]);
+          } else {
+            setMessages([]);
+          }
+        }
+      } catch (err) {
+        console.error("Error loading messages:", err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingMessages(false);
+        }
       }
     }
 
     fetchMessages();
     markConversationAsRead(selectedChat);
+
+    return () => {
+      isMounted = false;
+    };
   }, [selectedChat, currentUser?.id, markConversationAsRead, supabase]);
 
   // Global Realtime Listener for messages across all user's conversations
@@ -811,6 +971,33 @@ export default function ChatPage() {
   const activeConversation = conversations.find((c) => c.id === selectedChat);
   const isOtherUserOnline = activeConversation ? onlineUserIds.has(activeConversation.otherUser.id) : false;
 
+  // Handle direct call action parameter from short links (?action=voice or ?action=video)
+  useEffect(() => {
+    if (!activeConversation || hasTriggeredActionParam.current || !actionParam) return;
+    hasTriggeredActionParam.current = true;
+
+    if (actionParam === "voice") {
+      audioCall.startCall({
+        id: activeConversation.otherUser.id,
+        name: activeConversation.otherUser.display_name || activeConversation.otherUser.username,
+        username: activeConversation.otherUser.username,
+        avatarUrl: activeConversation.otherUser.avatar_url,
+        conversationId: activeConversation.id,
+      });
+    } else if (actionParam === "video") {
+      audioCall.startCall(
+        {
+          id: activeConversation.otherUser.id,
+          name: activeConversation.otherUser.display_name || activeConversation.otherUser.username,
+          username: activeConversation.otherUser.username,
+          avatarUrl: activeConversation.otherUser.avatar_url,
+          conversationId: activeConversation.id,
+        },
+        "video"
+      );
+    }
+  }, [activeConversation, actionParam, audioCall]);
+
   const renderSidebarContent = (isCollapsed = false) => {
     if (isCollapsed) {
       return (
@@ -853,10 +1040,7 @@ export default function ChatPage() {
                   return (
                     <div
                       key={chat.id}
-                      onClick={() => {
-                        setSelectedChat(chat.id);
-                        markConversationAsRead(chat.id);
-                      }}
+                      onClick={() => openConversation(chat)}
                       title={`${displayName}${isUserOnline ? ` (${t("online")})` : ""}`}
                       className={`relative p-1.5 rounded-2xl cursor-pointer transition-all duration-150 flex items-center justify-center group ${isSelected
                           ? "bg-primary/15 ring-2 ring-primary shadow-xs"
@@ -979,10 +1163,7 @@ export default function ChatPage() {
                 return (
                   <div
                     key={chat.id}
-                    onClick={() => {
-                      setSelectedChat(chat.id);
-                      markConversationAsRead(chat.id);
-                    }}
+                    onClick={() => openConversation(chat)}
                     className={`group flex items-center justify-between gap-3 p-3 rounded-xl cursor-pointer transition-colors ${selectedChat === chat.id ? "bg-accent shadow-xs" : "hover:bg-accent/50"
                       }`}
                   >
@@ -1155,7 +1336,7 @@ export default function ChatPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => setSelectedChat(null)}
+                  onClick={closeConversation}
                   className="h-9 w-9 text-muted-foreground hover:text-foreground md:hidden shrink-0"
                   title={t("backToChats")}
                 >
@@ -1177,26 +1358,32 @@ export default function ChatPage() {
                   )}
                 </Button>
 
-                <div className="relative shrink-0">
-                  <Avatar className="h-9 w-9 sm:h-10 sm:w-10 border border-border/50">
-                    <AvatarImage src={activeConversation.otherUser.avatar_url} />
-                    <AvatarFallback>{(activeConversation.otherUser.display_name || activeConversation.otherUser.username)[0]?.toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  {isOtherUserOnline && (
-                    <span className="absolute bottom-0 ltr:right-0 rtl:left-0 block h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
-                  )}
-                </div>
-                <div className="overflow-hidden">
-                  <h3 className="font-bold text-sm sm:text-base leading-snug truncate">
-                    {activeConversation.otherUser.display_name || activeConversation.otherUser.username}
-                  </h3>
-                  <div className="flex items-center gap-1.5 overflow-hidden">
-                    <span className="text-[11px] text-muted-foreground truncate">@{activeConversation.otherUser.username}</span>
-                    {isOtherUserOnline ? (
-                      <span className="text-xs text-emerald-500 font-medium shrink-0">• {t("online")}</span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground font-medium shrink-0">• {t("offline")}</span>
+                <div
+                  className="flex items-center gap-2 sm:gap-3 overflow-hidden cursor-pointer hover:opacity-85 transition-opacity"
+                  onClick={() => setIsUserCardModalOpen(true)}
+                  title="عرض بطاقة المستخدم"
+                >
+                  <div className="relative shrink-0">
+                    <Avatar className="h-9 w-9 sm:h-10 sm:w-10 border border-border/50">
+                      <AvatarImage src={activeConversation.otherUser.avatar_url} />
+                      <AvatarFallback>{(activeConversation.otherUser.display_name || activeConversation.otherUser.username)[0]?.toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    {isOtherUserOnline && (
+                      <span className="absolute bottom-0 ltr:right-0 rtl:left-0 block h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-emerald-500 ring-2 ring-background" />
                     )}
+                  </div>
+                  <div className="overflow-hidden">
+                    <h3 className="font-bold text-sm sm:text-base leading-snug truncate">
+                      {activeConversation.otherUser.display_name || activeConversation.otherUser.username}
+                    </h3>
+                    <div className="flex items-center gap-1.5 overflow-hidden">
+                      <span className="text-[11px] text-muted-foreground truncate">@{activeConversation.otherUser.username}</span>
+                      {isOtherUserOnline ? (
+                        <span className="text-xs text-emerald-500 font-medium shrink-0">• {t("online")}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground font-medium shrink-0">• {t("offline")}</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1258,7 +1445,7 @@ export default function ChatPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => setSelectedChat(null)}
+                  onClick={closeConversation}
                   title={t("closeChat")}
                   className="hover:bg-muted text-muted-foreground transition-colors"
                 >
@@ -1270,8 +1457,21 @@ export default function ChatPage() {
             {/* Chat Messages Area */}
             <ScrollArea className="flex-1 min-h-0 p-4">
               <div className="space-y-4">
-                {messages.map((msg) => {
-                  const isMe = msg.sender_id === currentUser.id;
+                {isLoadingMessages ? (
+                  <div className="min-h-[40vh] flex flex-col items-center justify-center gap-2 text-muted-foreground/60">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary/70" />
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="min-h-[40vh] flex flex-col items-center justify-center p-4 text-center text-muted-foreground/60">
+                    <div className="w-12 h-12 rounded-full bg-muted/40 flex items-center justify-center mb-2.5 text-muted-foreground">
+                      <MessageSquare className="h-6 w-6 opacity-40" />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground/80">{t("noMessagesYet")}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t("typeMessage")}</p>
+                  </div>
+                ) : (
+                  messages.map((msg) => {
+                    const isMe = msg.sender_id === currentUser.id;
                   const isDeleted = Boolean(
                     msg.is_deleted ||
                     msg.content === t("messageDeleted") ||
@@ -1501,7 +1701,8 @@ export default function ChatPage() {
                       </div>
                     </div>
                   );
-                })}
+                })
+              )}
                 <div ref={messagesEndRef} />
               </div>
             </ScrollArea>
@@ -1659,6 +1860,26 @@ export default function ChatPage() {
                 </div>
               )}
             </ScrollArea>
+          </div>
+        </div>
+      )}
+
+      {/* Other User Public Profile Card Modal */}
+      {isUserCardModalOpen && activeConversation && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="relative max-w-sm w-full animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setIsUserCardModalOpen(false)}
+              className="absolute -top-10 inset-e-0 text-white/80 hover:text-white rounded-full p-2 hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <X className="h-6 w-6" />
+              <span className="sr-only">إغلاق</span>
+            </button>
+            <UserPublicCard
+              user={activeConversation.otherUser}
+              isOnline={isOtherUserOnline}
+              onStartChat={() => setIsUserCardModalOpen(false)}
+            />
           </div>
         </div>
       )}
