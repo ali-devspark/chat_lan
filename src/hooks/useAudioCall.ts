@@ -64,6 +64,7 @@ export function useAudioCall(
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isRemoteVideoOff, setIsRemoteVideoOff] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -77,6 +78,7 @@ export function useAudioCall(
   const callTypeRef = useRef<CallType>("audio");
   const isVideoOffRef = useRef<boolean>(false);
   const facingModeRef = useRef<"user" | "environment">("user");
+  const isSwitchingCameraRef = useRef<boolean>(false);
 
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
   const isRoomSubscribedRef = useRef<boolean>(false);
@@ -281,6 +283,8 @@ export function useAudioCall(
     setIsMuted(false);
     setIsVideoOff(false);
     isVideoOffRef.current = false;
+    setIsRemoteVideoOff(false);
+    isSwitchingCameraRef.current = false;
     setFacingMode("user");
     facingModeRef.current = "user";
     setCallType("audio");
@@ -704,6 +708,16 @@ export function useAudioCall(
       }
 
       if (stream) {
+        if (event.track && event.track.kind === "video") {
+          event.track.onmute = () => {
+            console.log("[WebRTC] remote video track muted");
+          };
+          event.track.onunmute = () => {
+            console.log("[WebRTC] remote video track unmuted");
+            setIsRemoteVideoOff(false);
+          };
+        }
+
         // Explicitly guarantee all remote audio tracks are unmuted and live
         stream.getAudioTracks().forEach((track) => {
           track.enabled = true;
@@ -940,6 +954,11 @@ export function useAudioCall(
           console.log("Room signal received: call-reject");
           handleCallRejected(payload);
         })
+        .on("broadcast", { event: "call-video-toggle" }, ({ payload }: { payload?: { isVideoOff?: boolean; senderId?: string } }) => {
+          if (payload?.senderId === currentUser?.id) return;
+          console.log("Room signal received: call-video-toggle", payload);
+          setIsRemoteVideoOff(Boolean(payload?.isVideoOff));
+        })
         .subscribe((status: string) => {
           if (status === "SUBSCRIBED") {
             isRoomSubscribedRef.current = true;
@@ -1142,44 +1161,133 @@ export function useAudioCall(
       });
       setIsVideoOff(nextVideoOff);
       isVideoOffRef.current = nextVideoOff;
+      sendRoomSignal("call-video-toggle", { isVideoOff: nextVideoOff });
     }
-  }, [isVideoOff]);
+  }, [isVideoOff, sendRoomSignal]);
 
   // Switch Facing Camera (Front / Environment)
   const switchCamera = useCallback(async () => {
     if (callTypeRef.current !== "video") return;
-    const nextMode = facingModeRef.current === "user" ? "environment" : "user";
-    facingModeRef.current = nextMode;
-    setFacingMode(nextMode);
+    if (isSwitchingCameraRef.current) return;
+    isSwitchingCameraRef.current = true;
+
+    const currentMode = facingModeRef.current;
+    const nextMode: "user" | "environment" = currentMode === "user" ? "environment" : "user";
 
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          facingMode: nextMode,
-        },
+      // 1. Release active local video tracks first so mobile hardware camera lock is freed
+      const oldVideoTracks = localStreamRef.current?.getVideoTracks() || [];
+      oldVideoTracks.forEach((t) => {
+        try {
+          t.stop();
+        } catch (e) {
+          console.warn("Error stopping old video track:", e);
+        }
       });
-      const newVideoTrack = newStream.getVideoTracks()[0];
-      if (!newVideoTrack) return;
 
+      // 2. Request new camera stream with fallback strategies
+      let newStream: MediaStream | null = null;
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: nextMode },
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+          },
+        });
+      } catch (err1) {
+        console.warn("[WebRTC] High-res switchCamera failed, trying basic constraints:", err1);
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              facingMode: { ideal: nextMode },
+            },
+          });
+        } catch (err2) {
+          console.warn("[WebRTC] Ideal facingMode failed, falling back to any video camera:", err2);
+          newStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: true,
+          });
+        }
+      }
+
+      const newVideoTrack = newStream?.getVideoTracks()[0];
+      if (!newVideoTrack) {
+        throw new Error("No video track found in new stream");
+      }
+
+      // Preserve current camera mute state
+      newVideoTrack.enabled = !isVideoOffRef.current;
+
+      // 3. Update RTCPeerConnection sender
       if (pcRef.current) {
         const senders = pcRef.current.getSenders();
-        const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+        const videoSender =
+          senders.find((s) => s.track && s.track.kind === "video") ||
+          senders.find((s) => (s as any).kind === "video") ||
+          pcRef.current.getTransceivers?.().find(
+            (t) => t.sender?.track?.kind === "video" || t.receiver?.track?.kind === "video"
+          )?.sender;
+
         if (videoSender) {
           await videoSender.replaceTrack(newVideoTrack);
         }
       }
 
+      // 4. Update localStreamRef and React state
       if (localStreamRef.current) {
-        const oldTracks = localStreamRef.current.getVideoTracks();
-        oldTracks.forEach((t) => t.stop());
-        oldTracks.forEach((t) => localStreamRef.current?.removeTrack(t));
+        localStreamRef.current.getVideoTracks().forEach((t) => {
+          localStreamRef.current?.removeTrack(t);
+        });
         localStreamRef.current.addTrack(newVideoTrack);
         setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+      } else {
+        const stream = new MediaStream([newVideoTrack]);
+        localStreamRef.current = stream;
+        setLocalStream(stream);
       }
+
+      facingModeRef.current = nextMode;
+      setFacingMode(nextMode);
     } catch (err) {
-      console.error("Failed to switch camera:", err);
+      console.error("[WebRTC] Failed to switch camera:", err);
+      // Attempt recovery of previous camera so user is not stuck on a black screen
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: currentMode } },
+        });
+        const fallbackTrack = fallbackStream.getVideoTracks()[0];
+        if (fallbackTrack && localStreamRef.current) {
+          fallbackTrack.enabled = !isVideoOffRef.current;
+          localStreamRef.current.getVideoTracks().forEach((t) => {
+            t.stop();
+            localStreamRef.current?.removeTrack(t);
+          });
+          localStreamRef.current.addTrack(fallbackTrack);
+          setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+          if (pcRef.current) {
+            const senders = pcRef.current.getSenders();
+            const videoSender =
+              senders.find((s) => s.track && s.track.kind === "video") ||
+              senders.find((s) => (s as any).kind === "video") ||
+              pcRef.current.getTransceivers?.().find(
+                (t) => t.sender?.track?.kind === "video" || t.receiver?.track?.kind === "video"
+              )?.sender;
+            if (videoSender) {
+              await videoSender.replaceTrack(fallbackTrack);
+            }
+          }
+        }
+      } catch (recoverErr) {
+        console.error("[WebRTC] Camera recovery also failed:", recoverErr);
+      }
+    } finally {
+      isSwitchingCameraRef.current = false;
     }
   }, []);
 
@@ -1314,6 +1422,7 @@ export function useAudioCall(
     durationSeconds,
     isMuted,
     isVideoOff,
+    isRemoteVideoOff,
     facingMode,
     remoteStream,
     localStream,

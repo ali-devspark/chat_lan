@@ -15,6 +15,8 @@ import {
   Maximize2,
   Minimize2,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { AudioFrequencyVisualizer } from "@/components/chat/AudioFrequencyVisualizer";
 import type { CallType } from "@/hooks/useAudioCall";
@@ -42,6 +44,8 @@ interface VoiceCallModalProps {
   durationSeconds: number;
   isMuted: boolean;
   isVideoOff?: boolean;
+  isRemoteVideoOff?: boolean;
+  facingMode?: "user" | "environment";
   onAccept: () => void;
   onReject: () => void;
   onEndCall: () => void;
@@ -62,6 +66,8 @@ export function VoiceCallModal({
   durationSeconds,
   isMuted,
   isVideoOff = false,
+  isRemoteVideoOff = false,
+  facingMode = "user",
   onAccept,
   onReject,
   onEndCall,
@@ -76,46 +82,50 @@ export function VoiceCallModal({
   const t = useTranslations("Call");
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [areControlsVisible, setAreControlsVisible] = useState(true);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Reset controls visibility when call state changes
+  useEffect(() => {
+    setAreControlsVisible(true);
+  }, [callState, callType]);
+
   // Bind remote stream to remote video element
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      if (remoteVideoRef.current.srcObject !== remoteStream) {
-        remoteVideoRef.current.srcObject = remoteStream;
+    const el = remoteVideoRef.current;
+    if (el && remoteStream) {
+      if (el.srcObject !== remoteStream) {
+        el.srcObject = remoteStream;
       }
-      remoteVideoRef.current
-        .play()
-        .catch((err) => console.warn("[VideoCall] Remote video playback error:", err));
+      el.play().catch((err) => console.warn("[VideoCall] Remote video playback error:", err));
     }
-  }, [remoteStream, callState, callType]);
+  }, [remoteStream, callState, callType, isRemoteVideoOff]);
 
   // Bind local stream to local PiP video element
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      if (localVideoRef.current.srcObject !== localStream) {
-        localVideoRef.current.srcObject = localStream;
+    const el = localVideoRef.current;
+    if (el && localStream) {
+      if (el.srcObject !== localStream) {
+        el.srcObject = localStream;
       }
-      localVideoRef.current
-        .play()
-        .catch((err) => console.warn("[VideoCall] Local video playback error:", err));
+      el.play().catch((err) => console.warn("[VideoCall] Local video playback error:", err));
     }
-  }, [localStream, callState, callType]);
+  }, [localStream, callState, callType, isVideoOff, facingMode]);
 
   // Bind preview stream while outgoing video call is ringing
   useEffect(() => {
-    if (previewVideoRef.current && localStream && callType === "video") {
-      if (previewVideoRef.current.srcObject !== localStream) {
-        previewVideoRef.current.srcObject = localStream;
+    const el = previewVideoRef.current;
+    if (el && localStream && callType === "video") {
+      if (el.srcObject !== localStream) {
+        el.srcObject = localStream;
       }
-      previewVideoRef.current
-        .play()
-        .catch((err) => console.warn("[VideoCall] Preview video playback error:", err));
+      el.play().catch((err) => console.warn("[VideoCall] Preview video playback error:", err));
     }
-  }, [localStream, callState, callType]);
+  }, [localStream, callState, callType, facingMode]);
 
   // Fullscreen change listener
   useEffect(() => {
@@ -165,13 +175,14 @@ export function VoiceCallModal({
     }
   };
 
-  const hasRemoteVideoTrack = Boolean(
+  const isRemoteVideoShowing = Boolean(
     isVideoCall &&
       remoteStream &&
+      !isRemoteVideoOff &&
       remoteStream.getVideoTracks().some((t) => t.readyState === "live" && t.enabled)
   );
 
-  const hasLocalVideoTrack = Boolean(
+  const isLocalVideoShowing = Boolean(
     isVideoCall &&
       !isVideoOff &&
       localStream &&
@@ -188,19 +199,25 @@ export function VoiceCallModal({
         className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200"
       >
         <div className="relative w-full h-full sm:max-w-5xl sm:h-[86vh] bg-zinc-950 sm:rounded-3xl overflow-hidden shadow-2xl flex flex-col justify-between border border-white/10 select-none">
-          {/* Main Remote Video or Fallback Backdrop */}
-          <div className="absolute inset-0 w-full h-full bg-zinc-950 overflow-hidden flex items-center justify-center">
-            {hasRemoteVideoTrack ? (
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              /* If remote camera is off or not sending video */
-              <div className="flex flex-col items-center justify-center space-y-4 p-6 text-center z-10 animate-in fade-in duration-300">
+          {/* Main Remote Video or Fallback Backdrop (Click to toggle controls visibility) */}
+          <div
+            className="absolute inset-0 w-full h-full bg-zinc-950 overflow-hidden flex items-center justify-center cursor-pointer"
+            onClick={() => setAreControlsVisible((prev) => !prev)}
+          >
+            {/* Continuously mounted Remote Video to maintain WebRTC pipeline without black screen */}
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`w-full h-full object-cover transition-opacity duration-300 ${
+                isRemoteVideoShowing ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+            />
+
+            {/* If remote camera is off or not sending video, show avatar backdrop */}
+            {!isRemoteVideoShowing && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 p-6 text-center z-10 animate-in fade-in duration-300">
                 <div className="relative">
                   <span className="absolute -inset-4 rounded-full bg-primary/20 animate-ping opacity-70" />
                   <Avatar className="h-32 w-32 border-4 border-white/10 shadow-2xl relative z-10">
@@ -221,12 +238,15 @@ export function VoiceCallModal({
             )}
 
             {/* Subtle Gradient Overlays for Controls Readability */}
-            <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none z-10" />
-            <div className="absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none z-10" />
+            <div className="absolute inset-x-0 top-0 h-28 bg-linear-to-b from-black/80 via-black/40 to-transparent pointer-events-none z-10" />
+            <div className="absolute inset-x-0 bottom-0 h-36 bg-linear-to-t from-black/90 via-black/50 to-transparent pointer-events-none z-10" />
           </div>
 
           {/* Top Floating Header */}
-          <div className="relative z-20 flex items-center justify-between p-4 sm:p-6">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative z-20 flex items-center justify-between p-4 sm:p-6 pointer-events-auto"
+          >
             <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-md">
               <Avatar className="h-8 w-8 border border-white/20">
                 <AvatarImage src={otherUser.avatarUrl} />
@@ -260,21 +280,28 @@ export function VoiceCallModal({
           </div>
 
           {/* Picture-in-Picture (PiP) Floating Self View */}
-          <div className="absolute top-20 ltr:right-4 rtl:left-4 z-20 w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-zinc-900/90 backdrop-blur-md transition-all duration-300 group">
-            {hasLocalVideoTrack ? (
-              <video
-                ref={localVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover scale-x-[-1]"
-              />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center bg-zinc-900 text-zinc-400 space-y-1">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-20 ltr:right-4 rtl:left-4 z-20 w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-zinc-900/90 backdrop-blur-md transition-all duration-300 group pointer-events-auto"
+          >
+            {/* Always mounted local video element to preserve camera frame stream */}
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`w-full h-full object-cover transition-opacity duration-300 ${
+                facingMode === "user" ? "scale-x-[-1]" : ""
+              } ${isLocalVideoShowing ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+            />
+
+            {!isLocalVideoShowing && (
+              <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center p-2 text-center bg-zinc-900 text-zinc-400 space-y-1">
                 <VideoOff className="h-6 w-6 text-zinc-500" />
                 <span className="text-[10px] font-medium text-zinc-400">{t("cameraOff")}</span>
               </div>
             )}
+
             <div className="absolute bottom-1.5 inset-x-1.5 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-xs text-[10px] text-white/90 text-center font-medium truncate pointer-events-none">
               أنت
             </div>
@@ -282,7 +309,10 @@ export function VoiceCallModal({
 
           {/* Autoplay unblock button if mobile browser blocked audio */}
           {isAudioBlocked && (
-            <div className="relative z-30 px-4 pb-2 max-w-md mx-auto w-full">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="relative z-30 px-4 pb-2 max-w-md mx-auto w-full pointer-events-auto"
+            >
               <button
                 type="button"
                 onClick={onUnblockAudio}
@@ -294,60 +324,99 @@ export function VoiceCallModal({
             </div>
           )}
 
-          {/* Bottom Floating Controls Dock */}
-          <div className="relative z-20 pb-6 sm:pb-8 flex items-center justify-center">
-            <div className="inline-flex items-center gap-3 sm:gap-4 p-2.5 sm:p-3 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 shadow-2xl">
-              {/* Toggle Microphone */}
-              <Button
+          {/* Bottom Floating Controls Area */}
+          <div className="relative z-20 pb-4 sm:pb-6 flex flex-col items-center justify-center">
+            {/* Dock with buttons (Collapsible downwards) */}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className={`flex flex-col items-center gap-2 transition-all duration-300 ease-in-out ${
+                areControlsVisible
+                  ? "translate-y-0 opacity-100 pointer-events-auto"
+                  : "translate-y-28 opacity-0 pointer-events-none"
+              }`}
+            >
+              {/* Collapse button above dock */}
+              <button
                 type="button"
-                variant={isMuted ? "destructive" : "secondary"}
-                size="icon"
-                onClick={onToggleMute}
-                className="h-12 w-12 rounded-full shadow-md transition-transform active:scale-95"
-                title={isMuted ? t("unmute") : t("mute")}
+                onClick={() => setAreControlsVisible(false)}
+                className="px-3 py-1 rounded-full bg-black/40 hover:bg-black/70 backdrop-blur-md border border-white/10 text-white/80 hover:text-white text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+                title={t("hideControls")}
               >
-                {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-              </Button>
+                <ChevronDown className="h-3.5 w-3.5" />
+                <span className="text-[11px] font-medium">{t("hideControls")}</span>
+              </button>
 
-              {/* Toggle Camera */}
-              {onToggleVideo && (
+              <div className="inline-flex items-center gap-3 sm:gap-4 p-2.5 sm:p-3 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 shadow-2xl">
+                {/* Toggle Microphone */}
                 <Button
                   type="button"
-                  variant={isVideoOff ? "destructive" : "secondary"}
+                  variant={isMuted ? "destructive" : "secondary"}
                   size="icon"
-                  onClick={onToggleVideo}
+                  onClick={onToggleMute}
                   className="h-12 w-12 rounded-full shadow-md transition-transform active:scale-95"
-                  title={isVideoOff ? t("cameraOn") : t("cameraOff")}
+                  title={isMuted ? t("unmute") : t("mute")}
                 >
-                  {isVideoOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+                  {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                 </Button>
-              )}
 
-              {/* Switch Camera (Front/Rear on Mobile) */}
-              {onSwitchCamera && (
+                {/* Toggle Camera */}
+                {onToggleVideo && (
+                  <Button
+                    type="button"
+                    variant={isVideoOff ? "destructive" : "secondary"}
+                    size="icon"
+                    onClick={onToggleVideo}
+                    className="h-12 w-12 rounded-full shadow-md transition-transform active:scale-95"
+                    title={isVideoOff ? t("cameraOn") : t("cameraOff")}
+                  >
+                    {isVideoOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+                  </Button>
+                )}
+
+                {/* Switch Camera (Front/Rear on Mobile) */}
+                {onSwitchCamera && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    onClick={onSwitchCamera}
+                    className="h-12 w-12 rounded-full shadow-md transition-transform active:scale-95"
+                    title={t("switchCamera")}
+                  >
+                    <RefreshCw className="h-5 w-5" />
+                  </Button>
+                )}
+
+                {/* End Video Call Button */}
                 <Button
                   type="button"
-                  variant="secondary"
                   size="icon"
-                  onClick={onSwitchCamera}
-                  className="h-12 w-12 rounded-full shadow-md transition-transform active:scale-95"
-                  title={t("switchCamera")}
+                  onClick={onEndCall}
+                  className="h-13 w-13 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-xl transition-transform active:scale-95"
+                  title={t("endCall")}
                 >
-                  <RefreshCw className="h-5 w-5" />
+                  <PhoneOff className="h-6 w-6" />
                 </Button>
-              )}
-
-              {/* End Video Call Button */}
-              <Button
-                type="button"
-                size="icon"
-                onClick={onEndCall}
-                className="h-13 w-13 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-xl transition-transform active:scale-95"
-                title={t("endCall")}
-              >
-                <PhoneOff className="h-6 w-6" />
-              </Button>
+              </div>
             </div>
+
+            {/* Expand / Show Controls Floating Button when collapsed */}
+            {!areControlsVisible && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute bottom-6 inset-x-0 flex justify-center animate-in fade-in slide-in-from-bottom-3 duration-200 pointer-events-auto"
+              >
+                <button
+                  type="button"
+                  onClick={() => setAreControlsVisible(true)}
+                  className="px-4 py-2 rounded-full bg-black/75 hover:bg-black/95 backdrop-blur-xl border border-white/20 text-white text-xs font-semibold flex items-center gap-2 shadow-2xl transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  title={t("showControls")}
+                >
+                  <ChevronUp className="h-4 w-4" />
+                  <span>{t("showControls")}</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -372,7 +441,7 @@ export function VoiceCallModal({
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover scale-x-[-1]"
+              className={`w-full h-full object-cover ${facingMode === "user" ? "scale-x-[-1]" : ""}`}
             />
             <div className="absolute top-2 ltr:left-2 rtl:right-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-xs text-[10px] text-white font-medium flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -494,34 +563,64 @@ export function VoiceCallModal({
               <span className="text-xs font-medium text-muted-foreground">{t("endCall")}</span>
             </div>
           ) : callState === "connected" ? (
-            /* Connected Audio Call Controls: Mute/Unmute & Hang up */
-            <div className="flex items-center justify-center gap-6">
-              <div className="flex flex-col items-center gap-1.5">
-                <Button
-                  variant={isMuted ? "destructive" : "secondary"}
-                  size="icon"
-                  onClick={onToggleMute}
-                  className="h-12 w-12 rounded-full shadow-md transition-all active:scale-95"
-                  title={isMuted ? t("unmute") : t("mute")}
-                >
-                  {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-                </Button>
-                <span className="text-xs font-medium text-muted-foreground">
-                  {isMuted ? t("unmute") : t("mute")}
-                </span>
-              </div>
+            /* Connected Audio Call Controls: Mute/Unmute & Hang up with collapse/expand */
+            <div className="w-full space-y-2">
+              {areControlsVisible ? (
+                <div className="flex flex-col items-center space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <div className="flex items-center justify-center gap-6">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <Button
+                        variant={isMuted ? "destructive" : "secondary"}
+                        size="icon"
+                        onClick={onToggleMute}
+                        className="h-12 w-12 rounded-full shadow-md transition-all active:scale-95"
+                        title={isMuted ? t("unmute") : t("mute")}
+                      >
+                        {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                      </Button>
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {isMuted ? t("unmute") : t("mute")}
+                      </span>
+                    </div>
 
-              <div className="flex flex-col items-center gap-1.5">
-                <Button
-                  size="icon"
-                  onClick={onEndCall}
-                  className="h-14 w-14 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-lg transition-transform active:scale-95"
-                  title={t("endCall")}
-                >
-                  <PhoneOff className="h-6 w-6" />
-                </Button>
-                <span className="text-xs font-medium text-muted-foreground">{t("endCall")}</span>
-              </div>
+                    <div className="flex flex-col items-center gap-1.5">
+                      <Button
+                        size="icon"
+                        onClick={onEndCall}
+                        className="h-14 w-14 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-lg transition-transform active:scale-95"
+                        title={t("endCall")}
+                      >
+                        <PhoneOff className="h-6 w-6" />
+                      </Button>
+                      <span className="text-xs font-medium text-muted-foreground">{t("endCall")}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAreControlsVisible(false)}
+                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer py-1"
+                    title={t("hideControls")}
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                    <span>{t("hideControls")}</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAreControlsVisible(true)}
+                    className="rounded-full text-xs flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+                    title={t("showControls")}
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                    <span>{t("showControls")}</span>
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             /* Ended / Rejected / Busy State */

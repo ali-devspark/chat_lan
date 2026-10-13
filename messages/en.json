@@ -126,7 +126,9 @@
     "callLogMissed": "Missed Call",
     "callLogRejected": "Declined Call",
     "callLogBusy": "User Busy",
-    "callBack": "Call Back"
+    "callBack": "Call Back",
+    "hideControls": "Hide Controls",
+    "showControls": "Show Controls"
   },
   "Pwa": {
     "installApp": "Install App",

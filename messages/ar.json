@@ -126,7 +126,9 @@
     "callLogMissed": "مكالمة فائتة",
     "callLogRejected": "مكالمة مرفوضة",
     "callLogBusy": "المستخدم مشغول",
-    "callBack": "إعادة الاتصال"
+    "callBack": "إعادة الاتصال",
+    "hideControls": "إخفاء أزرار التحكم",
+    "showControls": "إظهار أزرار التحكم"
   },
   "Pwa": {
     "installApp": "تثبيت التطبيق",

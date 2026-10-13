@@ -1113,6 +1113,8 @@ export default function ChatPage() {
         durationSeconds={audioCall.durationSeconds}
         isMuted={audioCall.isMuted}
         isVideoOff={audioCall.isVideoOff}
+        isRemoteVideoOff={audioCall.isRemoteVideoOff}
+        facingMode={audioCall.facingMode}
         onAccept={audioCall.acceptCall}
         onReject={audioCall.rejectCall}
         onEndCall={audioCall.endCall}
